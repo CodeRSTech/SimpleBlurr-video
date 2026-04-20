@@ -648,10 +648,6 @@ class EditorAppService:
         if item is None:
             raise ValueError(f"Unknown frame item: {item_key}")
 
-        # TODO: Since we're not editing A, we can safely ignore checking the source
-        #if item.source != "Manual":
-        #    raise ValueError("Only Manual items can be edited directly.")
-
         item.label = label
         item.bbox_xyxy = bbox_xyxy
 

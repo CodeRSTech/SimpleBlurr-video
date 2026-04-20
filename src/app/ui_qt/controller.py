@@ -520,15 +520,6 @@ class EditorController:
             self._window.show_error("Edit Failed", "Selected item was not found.")
             return
 
-        # TODO: Since item(s) for a frame (or the entire video) can be re-set,
-        #  we can ignore the requirement that they be Manual items.
-        #  This is a bit of a hack, but it's a good start.
-        # Note: it is important to refactor the EditorService->update_manual_frame_item()
-        #  to handle the case where the item is not a Manual item.
-        #if item.source != "Manual":
-        #    self._window.show_error("Edit Failed", "Only Manual items can be edited directly.")
-        #    return
-
         dialog = ManualAnnotationDialog(
             self._window,
             title="Edit Manual Annotation",
