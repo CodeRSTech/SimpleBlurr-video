@@ -1,0 +1,19 @@
+# Data Handling
+loguru
+scipy
+numpy
+Pillow
+
+# Deep Learning Models
+ultralytics
+torch
+mtcnn
+
+# Configuration and Utilities
+pyyaml
+opencv-python
+torchvision
+torch-utils
+pandas
+configparser
+PySide6
