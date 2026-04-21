@@ -9,6 +9,7 @@ from .vid_data import VideoMetadata
 from app.infrastructure.video.frame_parser import FrameParser
 from app.infrastructure.video.detect_worker import DetectionWorker
 from app.infrastructure.video.cv2_vid_reader import OpenCvVideoReader
+from app.infrastructure.video.track_worker import TrackingWorker
 
 from app.presentation.view_models import ReviewFrameItemViewModel
 from app.shared.logging_cfg import get_logger
@@ -23,8 +24,17 @@ class Session:
     reader: OpenCvVideoReader
     _parser: FrameParser | None = None
     _detection_worker: DetectionWorker | None = None
+    _tracking_worker: TrackingWorker | None = None
+
+    # Layer A: Immutable Raw Detections (written only by DetectionWorker)
     raw_frame_items_by_frame_index: dict[int, list[ReviewFrameItemViewModel]] = field(default_factory=dict)
+    # Layer B: Editable pre-tracking review (lazily seeded from A, user-editable)
     review_frame_items_by_frame_index: dict[int, list[ReviewFrameItemViewModel]] = field(default_factory=dict)
+    # Layer C: Tracker-derived tracks (written only by TrackingWorker, not user-editable)
+    tracked_frame_items_by_frame_index: dict[int, list[ReviewFrameItemViewModel]] = field(default_factory=dict)
+    # Layer D: Final editable timeline (auto-seeded from C after tracking, user-editable)
+    final_frame_items_by_frame_index: dict[int, list[ReviewFrameItemViewModel]] = field(default_factory=dict)
+
     next_annotation_id: int = 1
     playback: PlaybackState = field(default_factory=PlaybackState)
     settings: ProcessingSettings = field(default_factory=ProcessingSettings)
@@ -42,6 +52,9 @@ class Session:
     def parser(self, parser: FrameParser | None) -> None:
         self._parser = parser
 
+    def has_parser(self) -> bool:
+        return self._parser is not None
+
     @property
     def detection_worker(self) -> DetectionWorker:
         if self._detection_worker is None:
@@ -55,5 +68,15 @@ class Session:
     def has_detection_worker(self) -> bool:
         return self._detection_worker is not None
 
-    def has_parser(self) -> bool:
-        return self._parser is not None
+    @property
+    def tracking_worker(self) -> TrackingWorker:
+        if self._tracking_worker is None:
+            raise ValueError("Tracking worker is not initialized")
+        return self._tracking_worker
+
+    @tracking_worker.setter
+    def tracking_worker(self, worker: TrackingWorker | None) -> None:
+        self._tracking_worker = worker
+
+    def has_tracking_worker(self) -> bool:
+        return self._tracking_worker is not None

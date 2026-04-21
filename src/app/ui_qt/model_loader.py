@@ -13,10 +13,10 @@ class ModelLoadWorker(QObject):
     failed = Signal(str, str, str)
 
     def __init__(
-        self,
-        app_service: EditorAppService,
-        session_id: str,
-        model_name: str,
+            self,
+            app_service: EditorAppService,
+            session_id: str,
+            model_name: str,
     ) -> None:
         super().__init__()
         self._app_service = app_service

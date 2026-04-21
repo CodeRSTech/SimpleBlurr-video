@@ -7,8 +7,8 @@ from app.presentation.view_models import FrameDataItemViewModel
 
 
 def draw_frame_overlays(
-    frame: np.ndarray,
-    items: list[FrameDataItemViewModel],
+        frame: np.ndarray,
+        items: list[FrameDataItemViewModel],
 ) -> np.ndarray:
     if not items:
         return frame

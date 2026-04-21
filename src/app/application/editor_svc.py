@@ -9,6 +9,7 @@ from app.infrastructure.video.cv2_vid_reader import OpenCvVideoReader
 from app.infrastructure.video.detect_models import get_available_detection_model_names
 from app.infrastructure.video.detect_worker import DetectionWorker
 from app.infrastructure.video.frame_parser import DetectionResult, FrameParser
+from app.infrastructure.video.track_worker import TrackingWorker
 from app.presentation.view_models import (
     DetectionModelItemViewModel,
     FrameDataItemViewModel,
@@ -21,41 +22,19 @@ from app.shared.logging_cfg import get_logger
 """
 Application service for the Qt rewrite.
 
-This module contains the main use-case orchestration class used by the UI layer.
-`EditorAppService` sits between the Qt controller and the lower-level domain /
-infrastructure objects.
-
-Key responsibilities
+A/B/C/D layer model
 --------------------
-- open videos and create sessions
-- track the active session
-- load frames for preview/playback
-- configure and trigger detection
-- maintain the review/edit state for frame items
-- expose UI-friendly view models
+- A = raw detections       (written by DetectionWorker, never user-editable)
+- B = reviewed detections  (lazily seeded from A, user-editable)
+- C = tracker-derived      (written by TrackingWorker, never user-editable)
+- D = final timeline       (auto-seeded from C after tracking, user-editable)
 
-A/B review model
-----------------
-The current rewrite follows a practical A/B split for frame items:
-
-- A = raw detection items
-  Stored in `raw_frame_items_by_frame_index`.
-  These represent model output and should be treated as the raw source state.
-
-- B = reviewed/editable items
-  Stored in `review_frame_items_by_frame_index`.
-  These are copied from A lazily when a frame first needs review state, then
-  mutated by user actions such as delete, duplicate, manual add, and manual move.
-
-Important rules
+Reset semantics
 ---------------
-- Raw detection state must remain the source of truth for reset operations.
-- User edits operate on review state, not raw detection state.
-- Reset current frame = rebuild B(frame) from A(frame).
-- Reset all review = clear all B state and rebuild lazily from A later.
-
-This module intentionally returns presentation-layer shaped data because the
-current rewrite already uses lightweight view models for table/overlay display.
+- B[frame] reset  → deep copy of A[frame]
+- D[frame] reset  → deep copy of C[frame]
+- Model change    → clears A, B, C, D
+- Re-run tracking → clears C, D; rebuilds C then seeds D
 """
 
 logger = get_logger("Application->EditorAppService")
@@ -78,14 +57,18 @@ class EditorAppService:
         self._active_session_id: str | None = None
         logger.debug("EditorAppService initialized")
 
-    # --- Properties ---
+    # -------------------------------------------------------------------------
+    # Properties
+    # -------------------------------------------------------------------------
 
     @property
     def number_of_sessions(self) -> int:
         """Return the number of open sessions."""
         return len(self._sessions)
 
-    # --- Public API: Session Management ---
+    # -------------------------------------------------------------------------
+    # Session Management
+    # -------------------------------------------------------------------------
 
     def close(self) -> None:
         """Release readers and stop background workers during application shutdown."""
@@ -187,7 +170,9 @@ class EditorAppService:
 
         return session
 
-    # --- Public API: Playback & Navigation ---
+    # -------------------------------------------------------------------------
+    # Playback & Navigation
+    # -------------------------------------------------------------------------
 
     def get_session_current_frame_index(self, session_id: str) -> int:
         """Expose the current playback frame index."""
@@ -279,7 +264,9 @@ class EditorAppService:
             session.playback.is_playing = False
         logger.info("Stopped playback for all sessions")
 
-    # --- Public API: Detection ---
+    # -------------------------------------------------------------------------
+    # Detection
+    # -------------------------------------------------------------------------
 
     def detect_current_frame(self, session_id: str) -> list[DetectionResult]:
         """
@@ -323,8 +310,9 @@ class EditorAppService:
         """
         Switch the detection model for a session.
 
-        Changing the model invalidates both raw and review caches because any old
+        Changing the model invalidates A, B, C, and D because any old
         detections were produced by a different parser/model configuration.
+        Tracks derived from stale detections are meaningless.
         """
         session = self._get_session(session_id)
         session.settings.detection_model_name = model_name
@@ -339,7 +327,9 @@ class EditorAppService:
             session.parser = None
             session.raw_frame_items_by_frame_index.clear()
             session.review_frame_items_by_frame_index.clear()
-            logger.info("Detection disabled for session {}", session_id)
+            session.tracked_frame_items_by_frame_index.clear()
+            session.final_frame_items_by_frame_index.clear()
+            logger.info("Detection disabled for session {}. All layers cleared.", session_id)
             return
 
         if not session.has_parser():
@@ -350,14 +340,19 @@ class EditorAppService:
 
         session.raw_frame_items_by_frame_index.clear()
         session.review_frame_items_by_frame_index.clear()
-        logger.info("Detection model set for session {}: {}", session_id, model_name)
+        session.tracked_frame_items_by_frame_index.clear()
+        session.final_frame_items_by_frame_index.clear()
+        logger.info(
+            "Detection model set for session {}. All layers cleared: {}",
+            session_id,
+            model_name,
+        )
 
     def start_background_detection(self, session_id: str) -> None:
         """
         Start async/background detection for the full session video.
 
-        Existing raw/review caches are cleared before the new worker begins filling
-        raw detection results.
+        Clears all four layers before the worker begins filling Layer A.
         """
         session = self._get_session(session_id)
         model_name = session.settings.detection_model_name
@@ -369,7 +364,11 @@ class EditorAppService:
             raise ValueError("Select a detection model before starting background detection.")
 
         if not session.has_parser():
-            logger.warning("FrameParser not found for session {}, initializing FrameParser('{}')", session_id, model_name)
+            logger.warning(
+                "FrameParser not found for session {}, initializing FrameParser('{}')",
+                session_id,
+                model_name,
+            )
             session.parser = FrameParser(model_name)
 
         if session.has_detection_worker() and session.detection_worker.is_running():
@@ -378,9 +377,11 @@ class EditorAppService:
 
         session.raw_frame_items_by_frame_index.clear()
         session.review_frame_items_by_frame_index.clear()
+        session.tracked_frame_items_by_frame_index.clear()
+        session.final_frame_items_by_frame_index.clear()
         session.detection_worker = DetectionWorker(session.metadata.path, session.parser)
         session.detection_worker.start()
-        logger.info("Background detection started for {}", session_id)
+        logger.info("Background detection started for {}. All layers cleared.", session_id)
 
     def sync_detection_cache(self, session_id: str) -> None:
         """
@@ -392,16 +393,258 @@ class EditorAppService:
         logger.trace("Syncing detection cache for session '{}'...", session_id)
         session = self._get_session(session_id)
         if not session.has_detection_worker():
-            logger.warning("Attempted to sync detection cache for session {} without detection_worker present", session_id)
+            logger.warning(
+                "Attempted to sync detection cache for session {} without detection_worker present",
+                session_id,
+            )
             return
 
         worker_cache = session.detection_worker.get_all_detections()
         if worker_cache:
             for frame_index, detections in worker_cache.items():
                 if frame_index not in session.raw_frame_items_by_frame_index:
-                    session.raw_frame_items_by_frame_index[frame_index] = self._map_detection_results_to_review_items(detections)
+                    session.raw_frame_items_by_frame_index[frame_index] = (
+                        self._map_detection_results_to_review_items(detections)
+                    )
 
-    # --- Public API: Review & Editing ---
+    # -------------------------------------------------------------------------
+    # Tracking — Layer C
+    # -------------------------------------------------------------------------
+
+    def start_background_tracking(self, session_id: str, strategy: str, source_layer: str) -> None:
+        """Start async tracking based on the chosen source layer (A or B)."""
+        session = self._get_session(session_id)
+        logger.info(
+            "Starting tracking '{}' for session '{}' from '{}'...",
+            strategy,
+            session_id,
+            source_layer,
+        )
+
+        if session.has_tracking_worker() and session.tracking_worker.isRunning():
+            logger.warning("Tracking already in progress for {}", session_id)
+            return
+
+        if source_layer == "layer_a":
+            source_data = session.raw_frame_items_by_frame_index
+        elif source_layer == "layer_b":
+            source_data = session.review_frame_items_by_frame_index
+        else:
+            raise ValueError(f"Unknown tracking source: {source_layer}")
+
+        if not source_data:
+            raise ValueError(f"Source layer '{source_layer}' is empty. Run detection first.")
+
+        session.tracked_frame_items_by_frame_index.clear()
+        session.final_frame_items_by_frame_index.clear()
+        session.tracking_worker = TrackingWorker(strategy, source_data)
+        session.tracking_worker.start()
+
+    def sync_tracking_cache(self, session_id: str) -> None:
+        """
+        Pull generated tracks (Layer C) from the worker into the session,
+        then auto-seed Layer D as a deep copy of Layer C.
+
+        Layer D is always rebuilt from scratch here, discarding any prior
+        user edits in D. This is intentional: re-running tracking produces
+        a new C, so D must reflect the new C.
+        """
+        session = self._get_session(session_id)
+        if not session.has_tracking_worker():
+            return
+
+        tracked_data = session.tracking_worker.get_tracked_data()
+        session.tracked_frame_items_by_frame_index = tracked_data
+        session.final_frame_items_by_frame_index = copy.deepcopy(tracked_data)
+
+        logger.info(
+            "Tracking cache synced for session {}. Layer C frames: {}. Layer D seeded.",
+            session_id,
+            len(tracked_data),
+        )
+
+    def get_tracker_presentation(self, session_id: str) -> FramePresentationViewModel:
+        """Build the presentation model for Layer C (read-only tracker source)."""
+        session = self._get_session(session_id)
+        frame_index = session.playback.current_frame_index
+
+        tracked_items = session.tracked_frame_items_by_frame_index.get(frame_index, [])
+        items = [self._to_frame_data_item_view_model(item) for item in tracked_items]
+        return FramePresentationViewModel(frame_data_items=items)
+
+    # -------------------------------------------------------------------------
+    # Final Timeline — Layer D
+    # -------------------------------------------------------------------------
+
+    def get_final_presentation(self, session_id: str) -> FramePresentationViewModel:
+        """
+        Build the presentation model for Layer D (the editable final timeline).
+
+        This is the data shown in the 'Tracking results' tab and used for
+        export and blur operations.
+        """
+        session = self._get_session(session_id)
+        frame_index = session.playback.current_frame_index
+
+        self._seed_final_frame_from_tracked_if_needed(session, frame_index)
+        final_items = session.final_frame_items_by_frame_index.get(frame_index, [])
+        items = [self._to_frame_data_item_view_model(item) for item in final_items]
+        return FramePresentationViewModel(frame_data_items=items)
+
+    def get_final_frame_item(self, session_id: str, item_key: str) -> ReviewFrameItemViewModel | None:
+        """Return a single Layer D item on the current frame, if present."""
+        session = self._get_session(session_id)
+        frame_index = session.playback.current_frame_index
+        self._seed_final_frame_from_tracked_if_needed(session, frame_index)
+        final_items = session.final_frame_items_by_frame_index.get(frame_index, [])
+        return next((item for item in final_items if item.item_key == item_key), None)
+
+    def delete_final_frame_items(self, session_id: str, item_keys: Iterable[str]) -> None:
+        """Delete selected items from Layer D on the current frame."""
+        session = self._get_session(session_id)
+        frame_index = session.playback.current_frame_index
+
+        item_keys_set = {k for k in item_keys if k}
+        if not item_keys_set:
+            return
+
+        self._seed_final_frame_from_tracked_if_needed(session, frame_index)
+        final_items = session.final_frame_items_by_frame_index.get(frame_index, [])
+        session.final_frame_items_by_frame_index[frame_index] = [
+            item for item in final_items if item.item_key not in item_keys_set
+        ]
+        logger.info(
+            "Deleted {} final frame item(s) from session {} frame {}",
+            len(item_keys_set),
+            session_id,
+            frame_index,
+        )
+
+    def duplicate_final_frame_items_to_next_frame(
+            self, session_id: str, item_keys: Iterable[str]
+    ) -> None:
+        """Duplicate selected Layer D items into the next frame as Manual items."""
+        session = self._get_session(session_id)
+        current_frame_index = session.playback.current_frame_index
+        next_frame_index = min(
+            current_frame_index + 1, max(session.metadata.frame_count - 1, 0)
+        )
+
+        if next_frame_index == current_frame_index:
+            return
+
+        item_keys_set = {k for k in item_keys if k}
+        if not item_keys_set:
+            return
+
+        self._seed_final_frame_from_tracked_if_needed(session, current_frame_index)
+        self._seed_final_frame_from_tracked_if_needed(session, next_frame_index)
+
+        source_items = session.final_frame_items_by_frame_index.get(current_frame_index, [])
+        items_to_duplicate = [i for i in source_items if i.item_key in item_keys_set]
+        if not items_to_duplicate:
+            return
+
+        target_items = session.final_frame_items_by_frame_index.setdefault(next_frame_index, [])
+        for source_item in items_to_duplicate:
+            duplicated = ReviewFrameItemViewModel(
+                item_id=f"manual-{session.next_annotation_id}",
+                source="Manual",
+                label=source_item.label,
+                bbox_xyxy=source_item.bbox_xyxy,
+                color_hex=source_item.color_hex,
+                confidence=source_item.confidence,
+                item_key=f"manual:manual-{session.next_annotation_id}",
+            )
+            session.next_annotation_id += 1
+            target_items.append(duplicated)
+
+        logger.info(
+            "Duplicated {} final frame item(s) to frame {} for session {}",
+            len(items_to_duplicate),
+            next_frame_index,
+            session_id,
+        )
+
+    def move_final_frame_items(
+            self,
+            session_id: str,
+            item_keys: Iterable[str],
+            delta_x: int,
+            delta_y: int,
+    ) -> int:
+        """Move selected items in Layer D on the current frame by a pixel delta."""
+        session = self._get_session(session_id)
+        frame_index = session.playback.current_frame_index
+
+        item_keys_set = {k for k in item_keys if k}
+        if not item_keys_set:
+            return 0
+
+        self._seed_final_frame_from_tracked_if_needed(session, frame_index)
+        final_items = session.final_frame_items_by_frame_index.get(frame_index, [])
+
+        moved_count = 0
+        for item in final_items:
+            if item.item_key not in item_keys_set:
+                continue
+            x1, y1, x2, y2 = item.bbox_xyxy
+            item.bbox_xyxy = (x1 + delta_x, y1 + delta_y, x2 + delta_x, y2 + delta_y)
+            moved_count += 1
+
+        logger.info(
+            "Moved {} final frame item(s) in session {} frame {} by dx={}, dy={}",
+            moved_count,
+            session_id,
+            frame_index,
+            delta_x,
+            delta_y,
+        )
+        return moved_count
+
+    def reset_final_frame(self, session_id: str, frame_index: int) -> None:
+        """
+        Reset one frame's Layer D state from Layer C.
+
+        Analogous to reset_review_frame() for Layer B ← A.
+        """
+        session = self._get_session(session_id)
+
+        if frame_index in session.tracked_frame_items_by_frame_index:
+            session.final_frame_items_by_frame_index[frame_index] = copy.deepcopy(
+                session.tracked_frame_items_by_frame_index[frame_index]
+            )
+            logger.info(
+                "Reset final (Layer D) state for session {} frame {}",
+                session_id,
+                frame_index,
+            )
+        else:
+            session.final_frame_items_by_frame_index.pop(frame_index, None)
+            logger.info(
+                "Cleared final (Layer D) state for session {} frame {} (no tracked source)",
+                session_id,
+                frame_index,
+            )
+
+    def reset_all_final_frames(self, session_id: str) -> None:
+        """
+        Clear all Layer D state and rebuild it entirely from Layer C.
+
+        Analogous to reset_all_review_frames() for B ← A.
+        """
+        session = self._get_session(session_id)
+        session.final_frame_items_by_frame_index = copy.deepcopy(
+            session.tracked_frame_items_by_frame_index
+        )
+        logger.info(
+            "Reset all final (Layer D) state for session {} from Layer C.",
+            session_id,
+        )
+
+    # -------------------------------------------------------------------------
+    # Review & Editing — Layer B
+    # -------------------------------------------------------------------------
 
     def add_manual_frame_item(
             self,
@@ -456,11 +699,8 @@ class EditorAppService:
         review_items = session.review_frame_items_by_frame_index.get(frame_index, [])
 
         session.review_frame_items_by_frame_index[frame_index] = [
-            item
-            for item in review_items
-            if item.item_key not in item_keys_set
+            item for item in review_items if item.item_key not in item_keys_set
         ]
-
         logger.info(
             "Deleted {} frame item(s) from session {} frame {}",
             len(item_keys_set),
@@ -495,16 +735,13 @@ class EditorAppService:
 
         source_items = session.review_frame_items_by_frame_index.get(current_frame_index, [])
         items_to_duplicate = [
-            item
-            for item in source_items
-            if item.item_key in item_keys_set
+            item for item in source_items if item.item_key in item_keys_set
         ]
 
         if not items_to_duplicate:
             return
 
         target_items = session.review_frame_items_by_frame_index.setdefault(next_frame_index, [])
-
         for source_item in items_to_duplicate:
             duplicated_item = ReviewFrameItemViewModel(
                 item_id=f"manual-{session.next_annotation_id}",
@@ -538,11 +775,7 @@ class EditorAppService:
         frame_index = session.playback.current_frame_index
         review_items = self._get_effective_review_items(session, frame_index)
 
-        items = [
-            self._to_frame_data_item_view_model(item)
-            for item in review_items
-        ]
-
+        items = [self._to_frame_data_item_view_model(item) for item in review_items]
         return FramePresentationViewModel(frame_data_items=items)
 
     def get_review_frame_item(self, session_id: str, item_key: str) -> ReviewFrameItemViewModel | None:
@@ -561,8 +794,7 @@ class EditorAppService:
         """
         Move selected Manual items on the current frame by a delta.
 
-        This is used by keyboard nudging in the Qt UI.
-        Only Manual items are moved; Detection items are ignored for now to keep
+        Only Manual items are moved; Detection items are ignored to keep
         raw A state immutable.
         """
         session = self._get_session(session_id)
@@ -581,14 +813,8 @@ class EditorAppService:
                 continue
             if item.source != "Manual":
                 continue
-
             x1, y1, x2, y2 = item.bbox_xyxy
-            item.bbox_xyxy = (
-                x1 + delta_x,
-                y1 + delta_y,
-                x2 + delta_x,
-                y2 + delta_y,
-            )
+            item.bbox_xyxy = (x1 + delta_x, y1 + delta_y, x2 + delta_x, y2 + delta_y)
             moved_count += 1
 
         logger.info(
@@ -626,7 +852,11 @@ class EditorAppService:
             logger.info("Reset review state for session {} frame {}", session_id, frame_index)
         else:
             session.review_frame_items_by_frame_index.pop(frame_index, None)
-            logger.info("Cleared review state for session {} frame {} (no raw source)", session_id, frame_index)
+            logger.info(
+                "Cleared review state for session {} frame {} (no raw source)",
+                session_id,
+                frame_index,
+            )
 
     def update_manual_frame_item(
             self,
@@ -650,7 +880,6 @@ class EditorAppService:
 
         item.label = label
         item.bbox_xyxy = bbox_xyxy
-
         logger.info(
             "Updated manual frame item {} in session {} frame {}",
             item_key,
@@ -658,19 +887,19 @@ class EditorAppService:
             frame_index,
         )
 
-    # --- Special Methods ---
+    # -------------------------------------------------------------------------
+    # Special Methods
+    # -------------------------------------------------------------------------
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(total sessions={len(self._sessions)})"
 
-    # --- Protected Methods ---
+    # -------------------------------------------------------------------------
+    # Protected Methods
+    # -------------------------------------------------------------------------
 
     def _get_effective_review_items(self, session: Session, frame_index: int) -> list[ReviewFrameItemViewModel]:
-        """
-        Return the editable items currently visible for a frame.
-
-        This ensures the frame has B/review state if raw A state exists.
-        """
+        """Return the editable items currently visible for a frame."""
         self._seed_review_frame_from_raw_if_needed(session, frame_index)
         return session.review_frame_items_by_frame_index.get(frame_index, [])
 
@@ -693,7 +922,9 @@ class EditorAppService:
             raise KeyError(f"Unknown session id: {session_id}")
         return session
 
-    # --- Static Methods ---
+    # -------------------------------------------------------------------------
+    # Static Methods
+    # -------------------------------------------------------------------------
 
     @staticmethod
     def get_available_detection_models() -> list[DetectionModelItemViewModel]:
@@ -707,13 +938,7 @@ class EditorAppService:
     def _map_detection_results_to_review_items(
             detections: list[DetectionResult],
     ) -> list[ReviewFrameItemViewModel]:
-        """
-        Convert raw parser results into the review-item shape used by the UI.
-
-        Even though these originate from detection output, they are mapped into
-        the common review item structure so the overlay and table can consume one
-        consistent item type.
-        """
+        """Convert raw parser results into the review-item shape used by the UI."""
         return [
             ReviewFrameItemViewModel(
                 item_id=detection.item_id,
@@ -745,7 +970,26 @@ class EditorAppService:
         session.review_frame_items_by_frame_index[frame_index] = copy.deepcopy(raw_items)
 
     @staticmethod
+    def _seed_final_frame_from_tracked_if_needed(session: Session, frame_index: int) -> None:
+        """
+        Lazily create Layer D state for a frame from Layer C.
+
+        Mirrors _seed_review_frame_from_raw_if_needed() for the D ← C relationship.
+        If Layer D already has data for this frame, it is left untouched.
+        If Layer C has no data for this frame, nothing is created.
+        """
+        if frame_index in session.final_frame_items_by_frame_index:
+            return
+
+        tracked_items = session.tracked_frame_items_by_frame_index.get(frame_index)
+        if tracked_items is None:
+            return
+
+        session.final_frame_items_by_frame_index[frame_index] = copy.deepcopy(tracked_items)
+
+    @staticmethod
     def _to_frame_data_item_view_model(item: ReviewFrameItemViewModel) -> FrameDataItemViewModel:
+        # TODO: This COULD be the best place(s) to put a label-based filter (e.g. selecting only persons)
         """Map an internal review item to the table/overlay view model used by the UI."""
         return FrameDataItemViewModel(
             item_id=item.item_id,

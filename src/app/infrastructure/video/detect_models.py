@@ -12,7 +12,6 @@ from app.shared.logging_cfg import get_logger
 
 logger = get_logger("Infrastructure->Video")
 
-
 TORCH_MODELS: dict[str, tuple[str, str]] = {
     "Torch FCOS_ResNet50_FPN": (
         "fcos_resnet50_fpn",
@@ -52,7 +51,6 @@ TORCH_MODELS: dict[str, tuple[str, str]] = {
     ),
 }
 
-
 ULTRALYTICS_MODELS: dict[str, str] = {
     "YOLOv8n": "yolov8n.pt",
     "YOLOv8s": "yolov8s.pt",
@@ -60,7 +58,6 @@ ULTRALYTICS_MODELS: dict[str, str] = {
     "YOLOv8l": "yolov8l.pt",
     "YOLOv8x": "yolov8x.pt",
 }
-
 
 DEFAULT_TORCH_CONFIDENCE_THRESHOLD = 0.50
 DEFAULT_YOLO_CONFIDENCE_THRESHOLD = 0.25
@@ -187,7 +184,6 @@ class YoloDetectionModel(BaseDetectionModel):
             raise DetectionModelError(
                 "Ultralytics is not installed, so YOLO models are unavailable."
             ) from exc
-
 
         try:
             return YOLO(self._model_file_name)

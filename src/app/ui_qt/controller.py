@@ -104,10 +104,9 @@ class EditorController:
 
     def handle_frame_table_key_press(self, event: QKeyEvent) -> bool:
         """
-        Handle arrow-key movement for selected frame items.
+        Handle arrow-key nudging for selected items.
 
-        Only plain arrow keys are handled.
-        Only Manual items are moved by the application service.
+        Dispatches to Layer B or Layer D depending on the active tab.
         """
         if event.modifiers() != Qt.KeyboardModifier.NoModifier:
             return False
@@ -142,18 +141,21 @@ class EditorController:
         elif key == Qt.Key.Key_Down:
             delta_y = delta
 
+        tab_index = self._window.get_active_tab_index()
         try:
-            moved_count = self._app_service.move_manual_frame_items(
-                session_id,
-                item_keys,
-                delta_x,
-                delta_y,
-            )
+            if tab_index == 1:
+                moved_count = self._app_service.move_final_frame_items(
+                    session_id, item_keys, delta_x, delta_y,
+                )
+            else:
+                moved_count = self._app_service.move_manual_frame_items(
+                    session_id, item_keys, delta_x, delta_y,
+                )
             if moved_count > 0:
                 self._show_saved_session_frame(session_id)
         except Exception as exc:
             self._window.show_error("Move Failed", str(exc))
-            logger.opt(exception=exc).error("Failed to move selected manual frame item(s)")
+            logger.opt(exception=exc).error("Failed to move selected frame item(s)")
 
         return True
 
@@ -162,8 +164,6 @@ class EditorController:
     def _connect_signals(self) -> None:
         """
         Connect all window signals and lifecycle hooks.
-
-        This method is the main signal wiring map for the Qt application.
         """
         logger.debug("Connecting signals for EditorController")
         self._playback_timer.timeout.connect(self._on_playback_tick)
@@ -184,6 +184,8 @@ class EditorController:
         self._window.pause_requested.connect(self._on_pause_requested)
         self._window.next_frame_requested.connect(self._on_next_frame_requested)
         self._window.previous_frame_requested.connect(self._on_previous_frame_requested)
+        # Previously missing — now connected:
+        self._window.start_tracking_requested.connect(self._on_start_tracking_requested)
         self._app.aboutToQuit.connect(self._on_about_to_quit)
 
     def _initialize_detection_models(self) -> None:
@@ -228,18 +230,28 @@ class EditorController:
 
     def _render_frame(self, session_id: str, frame) -> None:
         """
-        Render a frame into the preview and rebuild the frame-data table.
+        Render a frame into the preview and rebuild both data tables.
 
-        Rendering pulls the current presentation model from the application
-        service, overlays boxes onto the frame image, then updates the window.
+        The preview overlay draws Layer B (detection review).
+        The 'Detected objects' tab shows Layer B.
+        The 'Tracking results' tab shows Layer D (final editable timeline).
         """
         logger.trace("Rendering frame")
         presentation = self._app_service.get_frame_presentation(session_id)
-        frame_with_overlays = draw_frame_overlays(frame, presentation.frame_data_items)
+        final_presentation = self._app_service.get_final_presentation(session_id)
+
+        active_tab_index = self._window.get_active_tab_index()
+
+        if active_tab_index == 0:
+            frame_with_overlays = draw_frame_overlays(frame, presentation.frame_data_items)
+        elif active_tab_index == 1:
+            frame_with_overlays = draw_frame_overlays(frame, final_presentation.frame_data_items)
+
         image = bgr_frame_to_qimage(frame_with_overlays)
 
         self._window.preview_widget.set_image(image)
         self._window.set_frame_data_items(presentation.frame_data_items)
+        self._window.set_tracker_data_items(final_presentation.frame_data_items)
 
     def _show_saved_session_frame(self, session_id: str) -> None:
         """
@@ -438,6 +450,44 @@ class EditorController:
             self._window.show_error("Background Detection Failed", str(exc))
             logger.opt(exception=exc).error("Failed to start background detection")
 
+    # --- NEW: Tracking Signal Handlers ---
+
+    def _on_start_tracking_requested(self, strategy: str, source: str) -> None:
+        """Locks UI and initiates the QThread for tracking."""
+        session_id = self._window.get_selected_session_id()
+        if session_id is None:
+            return
+
+        try:
+            self._window.set_tracking_loading_state(True)
+            self._window.set_status_text(f"Tracking using {strategy}...")
+
+            self._app_service.start_background_tracking(session_id, strategy, source)
+
+            # Connect the thread signals to update the UI when finished
+            session = self._app_service.get_active_session()
+            if session and session.has_tracking_worker():
+                session.tracking_worker.finished_processing.connect(
+                    lambda: self._on_tracking_finished(session_id)
+                )
+                session.tracking_worker.error_occurred.connect(self._on_tracking_failed)
+
+        except Exception as exc:
+            self._window.set_tracking_loading_state(False)
+            self._window.show_error("Tracking Failed", str(exc))
+            logger.opt(exception=exc).error("Failed to start tracking")
+
+    def _on_tracking_finished(self, session_id: str) -> None:
+        """Triggered automatically when TrackingWorker finishes."""
+        logger.info("Tracking Thread finished successfully.")
+        self._app_service.sync_tracking_cache(session_id)
+        self._window.set_tracking_loading_state(False)
+        self._show_saved_session_frame(session_id)
+
+    def _on_tracking_failed(self, error_message: str) -> None:
+        self._window.set_tracking_loading_state(False)
+        self._window.show_error("Tracking Error", error_message)
+
     # --- Signal Handlers: Manual Annotations ---
 
     def _on_add_manual_frame_item_requested(self) -> None:
@@ -467,45 +517,55 @@ class EditorController:
                 logger.opt(exception=exc).error("Failed to add manual frame item")
 
     def _on_delete_selected_frame_item_requested(self) -> None:
-        """Delete selected review items from the current frame."""
+        """Delete selected items from the active tab's layer."""
         session_id = self._window.get_selected_session_id()
         item_keys = self._window.get_selected_frame_item_keys()
         if session_id is None or not item_keys:
             return
 
+        tab_index = self._window.get_active_tab_index()
         logger.info(
-            "Delete selected frame items requested: session_id={}, count={}",
+            "Delete requested: session={}, tab={}, count={}",
             session_id,
+            tab_index,
             len(item_keys),
         )
         try:
-            self._app_service.delete_frame_items(session_id, item_keys)
+            if tab_index == 1:
+                self._app_service.delete_final_frame_items(session_id, item_keys)
+            else:
+                self._app_service.delete_frame_items(session_id, item_keys)
             self._show_saved_session_frame(session_id)
         except Exception as exc:
             self._window.show_error("Delete Failed", str(exc))
             logger.opt(exception=exc).error("Failed to delete frame item(s)")
 
     def _on_duplicate_selected_frame_item_requested(self) -> None:
-        """Duplicate selected items into the next frame as Manual items."""
+        """Duplicate selected items into the next frame, respecting the active tab."""
         session_id = self._window.get_selected_session_id()
         item_keys = self._window.get_selected_frame_item_keys()
         if session_id is None or not item_keys:
             return
 
+        tab_index = self._window.get_active_tab_index()
         logger.info(
-            "Duplicate selected frame items requested: session_id={}, count={}",
+            "Duplicate requested: session={}, tab={}, count={}",
             session_id,
+            tab_index,
             len(item_keys),
         )
         try:
-            self._app_service.duplicate_frame_items_to_next_frame(session_id, item_keys)
+            if tab_index == 1:
+                self._app_service.duplicate_final_frame_items_to_next_frame(session_id, item_keys)
+            else:
+                self._app_service.duplicate_frame_items_to_next_frame(session_id, item_keys)
             self._show_saved_session_frame(session_id)
         except Exception as exc:
             self._window.show_error("Duplicate Failed", str(exc))
             logger.opt(exception=exc).error("Failed to duplicate frame item(s)")
 
     def _on_edit_selected_frame_item_requested(self) -> None:
-        """Edit one selected Manual item via the annotation dialog."""
+        """Edit one selected item via the annotation dialog, respecting the active tab."""
         session_id = self._window.get_selected_session_id()
         if session_id is None:
             return
@@ -515,14 +575,20 @@ class EditorController:
             self._window.show_error("Edit Failed", "Select exactly one item to edit.")
             return
 
-        item = self._app_service.get_review_frame_item(session_id, item_keys[0])
+        tab_index = self._window.get_active_tab_index()
+
+        if tab_index == 1:
+            item = self._app_service.get_final_frame_item(session_id, item_keys[0])
+        else:
+            item = self._app_service.get_review_frame_item(session_id, item_keys[0])
+
         if item is None:
             self._window.show_error("Edit Failed", "Selected item was not found.")
             return
 
         dialog = ManualAnnotationDialog(
             self._window,
-            title="Edit Manual Annotation",
+            title="Edit Annotation",
             initial_label=item.label,
             initial_bbox_xyxy=item.bbox_xyxy,
         )
@@ -545,34 +611,42 @@ class EditorController:
             self._show_saved_session_frame(session_id)
         except Exception as exc:
             self._window.show_error("Edit Failed", str(exc))
-            logger.opt(exception=exc).error("Failed to edit manual frame item")
-
-    def _on_reset_all_review_requested(self) -> None:
-        """Clear all review state so it rebuilds lazily from raw detection state."""
-        session_id = self._window.get_selected_session_id()
-        if session_id is None:
-            return
-
-        try:
-            self._app_service.reset_all_review_frames(session_id)
-            self._show_saved_session_frame(session_id)
-        except Exception as exc:
-            self._window.show_error("Reset All Failed", str(exc))
-            logger.opt(exception=exc).error("Failed to reset all review state")
+            logger.opt(exception=exc).error("Failed to edit frame item")
 
     def _on_reset_current_frame_review_requested(self) -> None:
-        """Reset the current frame's review state from raw detection state."""
+        """Reset the current frame, targeting the correct layer for the active tab."""
         session_id = self._window.get_selected_session_id()
         if session_id is None:
             return
 
+        tab_index = self._window.get_active_tab_index()
         try:
             frame_index = self._app_service.get_session_current_frame_index(session_id)
-            self._app_service.reset_review_frame(session_id, frame_index)
+            if tab_index == 1:
+                self._app_service.reset_final_frame(session_id, frame_index)
+            else:
+                self._app_service.reset_review_frame(session_id, frame_index)
             self._show_saved_session_frame(session_id)
         except Exception as exc:
             self._window.show_error("Reset Frame Failed", str(exc))
-            logger.opt(exception=exc).error("Failed to reset current frame review state")
+            logger.opt(exception=exc).error("Failed to reset current frame")
+
+    def _on_reset_all_review_requested(self) -> None:
+        """Reset all frames, targeting the correct layer for the active tab."""
+        session_id = self._window.get_selected_session_id()
+        if session_id is None:
+            return
+
+        tab_index = self._window.get_active_tab_index()
+        try:
+            if tab_index == 1:
+                self._app_service.reset_all_final_frames(session_id)
+            else:
+                self._app_service.reset_all_review_frames(session_id)
+            self._show_saved_session_frame(session_id)
+        except Exception as exc:
+            self._window.show_error("Reset All Failed", str(exc))
+            logger.opt(exception=exc).error("Failed to reset all frames")
 
     # --- Signal Handlers: Playback & Navigation ---
 

@@ -59,7 +59,7 @@ class MainWindow(QMainWindow):
     session_selected = Signal(str)
     start_background_detection_requested = Signal()
     # NEW SIGNAL
-    start_tracking_requested = Signal(str)
+    start_tracking_requested = Signal(str, str)
 
     def __init__(self) -> None:
         logger.info("Initializing UI (MainWindow)")
@@ -87,10 +87,11 @@ class MainWindow(QMainWindow):
         # NEW: Tracking Widgets
         self.track_button = QPushButton("Start Tracking")
         self.tracking_strategy_combo_box = QComboBox()
-        # Add some placeholder strategies (Display Name, Internal ID)
-        self.tracking_strategy_combo_box.addItem("ByteTrack (High Perf)", "bytetrack")
-        self.tracking_strategy_combo_box.addItem("DeepSORT", "deepsort")
-        self.tracking_strategy_combo_box.addItem("CSRT (Manual/Slow)", "csrt")
+
+        # NEW: tracking source selection
+        self.tracking_source_combo_box = QComboBox()
+        self.tracking_source_combo_box.addItem("Layer A (Raw Detections)", "layer_a")
+        self.tracking_source_combo_box.addItem("Layer B (Reviewed Detections)", "layer_b")
 
         self.preview_widget = PreviewWidget()
         self.session_list = QListWidget()
@@ -150,8 +151,20 @@ class MainWindow(QMainWindow):
         self.detect_button.setEnabled(not is_loading)
         self.detect_all_button.setEnabled(not is_loading)
 
+    def set_tracking_loading_state(self, is_loading: bool) -> None:
+        """Toggle interactivity of tracking controls while tracking thread is running."""
+        logger.trace("Setting tracking loading state: {}", is_loading)
+        self.add_manual_button.setEnabled(not is_loading)
+        self.detect_button.setEnabled(not is_loading)
+        self.detect_all_button.setEnabled(not is_loading)
+        self.reset_all_button.setEnabled(not is_loading)
+        self.reset_frame_button.setEnabled(not is_loading)
+        self.track_button.setEnabled(not is_loading)
+        self.tracking_strategy_combo_box.setEnabled(not is_loading)
+        self.tracking_source_combo_box.setEnabled(not is_loading)
+
     def set_detection_model_items(
-        self, items: list[DetectionModelItemViewModel]
+            self, items: list[DetectionModelItemViewModel]
     ) -> None:
         """Populate the model combo box."""
         logger.trace("Setting detection model items: {}", len(items))
@@ -163,6 +176,24 @@ class MainWindow(QMainWindow):
 
         self.model_combo_box.blockSignals(False)
 
+    def set_tracker_data_items(self, items: list[FrameDataItemViewModel]) -> None:
+        """Populate the tracker tab table with Layer D data."""
+        logger.trace("Setting tracker (Layer D) data items: {}", len(items))
+        self.frame_tracker_data_table.blockSignals(True)
+        self.frame_tracker_data_table.setRowCount(len(items))
+
+        for row_index, item in enumerate(items):
+            id_item = QTableWidgetItem(item.item_id)
+            id_item.setData(Qt.ItemDataRole.UserRole, item.item_key)
+            self.frame_tracker_data_table.setItem(row_index, 0, id_item)
+            self.frame_tracker_data_table.setItem(row_index, 1, QTableWidgetItem(item.source))
+            self.frame_tracker_data_table.setItem(row_index, 2, QTableWidgetItem(item.label))
+            self.frame_tracker_data_table.setItem(row_index, 3, QTableWidgetItem(item.confidence_text))
+            self.frame_tracker_data_table.setItem(row_index, 4, QTableWidgetItem(item.bbox_text))
+            self.frame_tracker_data_table.setItem(row_index, 5, QTableWidgetItem(item.color_hex))
+
+        self.frame_tracker_data_table.blockSignals(False)
+
     def set_selected_detection_model(self, model_id: str) -> None:
         """Update the combo box selection to match the active session."""
         logger.trace("Setting selected detection model: {}", model_id)
@@ -172,7 +203,71 @@ class MainWindow(QMainWindow):
             self.model_combo_box.setCurrentIndex(index)
         self.model_combo_box.blockSignals(False)
 
+        # --- Public API: Tab-aware helpers ---
+
+        def get_active_tab_index(self) -> int:
+            """Return the index of the currently visible data tab (0 = B, 1 = D)."""
+            return self.data_tab.currentIndex()
+
+        def get_active_frame_data_table(self) -> QTableWidget:
+            """Return whichever table is currently shown in the active tab."""
+            if self.data_tab.currentIndex() == 1:
+                return self.frame_tracker_data_table
+            return self.frame_detection_data_table
+
+        def get_frame_data_table(self) -> QTableWidget:
+            """
+            Return the detection table for keyboard-filter installation.
+
+            The key filter is installed on the detection table only; tracker-tab
+            nudging is wired via get_active_frame_data_table() at action time.
+            """
+            return self.frame_detection_data_table
+
+        def get_selected_frame_item_keys(self) -> list[str]:
+            """Return item keys for all selected rows in the *currently active* tab."""
+            logger.trace("Getting selected frame item keys (tab-aware)")
+            table = self.get_active_frame_data_table()
+            selection_model = table.selectionModel()
+            if selection_model is None:
+                return []
+
+            selected_keys: list[str] = []
+            seen_keys: set[str] = set()
+
+            for index in selection_model.selectedRows():
+                id_item = table.item(index.row(), 0)
+                if id_item is None:
+                    continue
+                item_key = id_item.data(Qt.ItemDataRole.UserRole)
+                if isinstance(item_key, str) and item_key not in seen_keys:
+                    seen_keys.add(item_key)
+                    selected_keys.append(item_key)
+
+            return selected_keys
+
+        def get_selected_frame_item_key(self) -> str | None:
+            """Return the item key for the single focused row in the active tab."""
+            logger.trace("Getting selected frame item key (tab-aware)")
+            table = self.get_active_frame_data_table()
+            row_index = table.currentRow()
+            if row_index < 0:
+                return None
+            id_item = table.item(row_index, 0)
+            if id_item is None:
+                return None
+            item_key = id_item.data(Qt.ItemDataRole.UserRole)
+            return item_key if isinstance(item_key, str) else None
+
     # --- Public API: Frame & Table Helpers ---
+
+    def get_active_tab_index(self) -> int:
+        """Return the index of the currently active tab (0 = A/B, 1 = C/D)."""
+        logger.trace("Getting active tab index (tab-aware)")
+        tab_widget_idx = self.data_tab.currentIndex()
+        if tab_widget_idx is None:
+            return -1
+        return tab_widget_idx
 
     def get_frame_data_table(self) -> QTableWidget:
         """Return the internal table widget."""
@@ -385,6 +480,13 @@ class MainWindow(QMainWindow):
         return nav_row
 
     def _build_top_row(self) -> QHBoxLayout:
+        # NEW: more tracking strategies
+        self.tracking_strategy_combo_box.addItem("Dummy Tracker (Copy)", "dummy")
+        self.tracking_strategy_combo_box.addItem("Hungarian IoU (Fast)", "hungarian")
+        self.tracking_strategy_combo_box.addItem("ByteTrack (High Perf)", "bytetrack")
+        self.tracking_strategy_combo_box.addItem("DeepSORT", "deepsort")
+        self.tracking_strategy_combo_box.addItem("CSRT (Manual/Slow)", "csrt")
+
         top_row = QHBoxLayout()
         top_row.addWidget(self.open_button)
         top_row.addWidget(self.play_button)
@@ -400,6 +502,8 @@ class MainWindow(QMainWindow):
 
         # NEW: Tracking Controls
         top_row.addSpacing(20)  # Add a little visual gap between detection and tracking
+        top_row.addWidget(QLabel("Source:"))
+        top_row.addWidget(self.tracking_source_combo_box)
         top_row.addWidget(QLabel("Strategy:"))
         top_row.addWidget(self.tracking_strategy_combo_box)
         top_row.addWidget(self.track_button)
@@ -432,7 +536,6 @@ class MainWindow(QMainWindow):
         self.detect_all_button.clicked.connect(
             self.start_background_detection_requested.emit
         )
-        # NEW: Connect the tracking button
         self.track_button.clicked.connect(self._emit_start_tracking)
         self.add_manual_button.clicked.connect(
             self.add_manual_frame_item_requested.emit
@@ -453,9 +556,16 @@ class MainWindow(QMainWindow):
         self.model_combo_box.currentIndexChanged.connect(self._emit_model_changed)
         self.seek_slider.sliderReleased.connect(self._emit_seek_requested)
         self.session_list.itemSelectionChanged.connect(self._emit_selected_session)
+        # Connect BOTH tables so button enable/disable state updates when either tab's
+        # selection changes.
         self.frame_detection_data_table.itemSelectionChanged.connect(
             self._update_frame_item_action_state
         )
+        self.frame_tracker_data_table.itemSelectionChanged.connect(
+            self._update_frame_item_action_state
+        )
+        # Also update action state when the user switches tabs.
+        self.data_tab.currentChanged.connect(self._update_frame_item_action_state)
 
     def _emit_model_changed(self) -> None:
         logger.debug("Emitting model changed")
@@ -483,8 +593,9 @@ class MainWindow(QMainWindow):
     def _emit_start_tracking(self) -> None:
         logger.debug("Emitting start tracking requested")
         strategy_id = self.tracking_strategy_combo_box.currentData()
-        if isinstance(strategy_id, str):
-            self.start_tracking_requested.emit(strategy_id)
+        source_id = self.tracking_source_combo_box.currentData()
+        if isinstance(strategy_id, str) and isinstance(source_id, str):
+            self.start_tracking_requested.emit(strategy_id, source_id)
 
     def _update_frame_item_action_state(self) -> None:
         """Enable/disable annotation buttons based on current table selection."""
