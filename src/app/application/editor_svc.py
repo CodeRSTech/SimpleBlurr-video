@@ -259,10 +259,10 @@ class EditorAppService:
 
     def stop_all_playback(self) -> None:
         """Stop playback flags for all sessions."""
-        logger.info("Stopping all playback sessions")
+        logger.trace("Stopping all playback sessions")
         for session in self._sessions.values():
             session.playback.is_playing = False
-        logger.info("Stopped playback for all sessions")
+        logger.trace("Stopped playback for all sessions")
 
     # -------------------------------------------------------------------------
     # Detection

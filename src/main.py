@@ -11,7 +11,7 @@ from app.ui_qt.main_win import MainWindow
 def main() -> None:
     configure_logging(
         console_level="DEBUG",
-        file_level="DEBUG",
+        file_level="TRACE",
         enabled_areas=None,
     )
 
