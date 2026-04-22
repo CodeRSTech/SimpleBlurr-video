@@ -3,7 +3,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from app.domain.vid_data import VideoMetadata
+from app.domain.data.vid_data import VideoMetadata
 from app.shared.logging_cfg import get_logger
 
 logger = get_logger("Infrastructure->Video")

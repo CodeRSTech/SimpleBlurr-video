@@ -1,41 +1,37 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QThread, Signal
 
-from app.application.editor_svc import EditorAppService
+from app.application.coordinator import AppCoordinator
 from app.shared.logging_cfg import get_logger
 
-logger = get_logger("UI->ModelLoadWorker")
+logger = get_logger("UI->ModelLoader")
 
 
-class ModelLoadWorker(QObject):
-    finished = Signal(str, str)
-    failed = Signal(str, str, str)
+class ModelLoadWorker(QThread):
+    """
+    Background worker to load a detection model without freezing the UI.
+    """
+    finished = Signal(str, str)        # session_id, model_name
+    failed = Signal(str, str, str)     # session_id, model_name, error_message
 
     def __init__(
-            self,
-            app_service: EditorAppService,
-            session_id: str,
-            model_name: str,
+        self,
+        facade: AppCoordinator,
+        session_id: str,
+        model_name: str,
+        parent=None,
     ) -> None:
-        super().__init__()
-        self._app_service = app_service
+        super().__init__(parent)
+        self._facade = facade
         self._session_id = session_id
         self._model_name = model_name
 
     def run(self) -> None:
+        logger.info("ModelLoadWorker started: session={}, model={}", self._session_id, self._model_name)
         try:
-            logger.info(
-                "Background model load started: session_id={}, model={}",
-                self._session_id,
-                self._model_name,
-            )
-            self._app_service.set_detection_model(self._session_id, self._model_name)
+            self._facade.set_detection_model(self._session_id, self._model_name)
             self.finished.emit(self._session_id, self._model_name)
         except Exception as exc:
-            logger.opt(exception=exc).error(
-                "Background model load failed: session_id={}, model={}",
-                self._session_id,
-                self._model_name,
-            )
+            logger.opt(exception=True).error("ModelLoadWorker failed")
             self.failed.emit(self._session_id, self._model_name, str(exc))

@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .playback_state import PlaybackState
+from app.domain.state.playback_state import PlaybackState
 from .processing_settings import ProcessingSettings
-from .vid_data import VideoMetadata
+from app.domain.data.vid_data import VideoMetadata
 
-from app.infrastructure.video.frame_parser import FrameParser
-from app.infrastructure.video.detect_worker import DetectionWorker
+from app.infrastructure.detection.frame_parser import FrameParser
+from app.infrastructure.detection.detect_worker import DetectionWorker
 from app.infrastructure.video.cv2_vid_reader import OpenCvVideoReader
-from app.infrastructure.video.track_worker import TrackingWorker
+from app.infrastructure.tracking.track_worker import TrackingWorker
 
-from app.presentation.view_models import ReviewFrameItemViewModel
+from app.domain.typing import FrameItemsByIndex
 from app.shared.logging_cfg import get_logger
 
 logger = get_logger("Domain->Session")
@@ -27,13 +27,13 @@ class Session:
     _tracking_worker: TrackingWorker | None = None
 
     # Layer A: Immutable Raw Detections (written only by DetectionWorker)
-    raw_frame_items_by_frame_index: dict[int, list[ReviewFrameItemViewModel]] = field(default_factory=dict)
+    raw_frame_items_by_frame_index: FrameItemsByIndex = field(default_factory=dict)
     # Layer B: Editable pre-tracking review (lazily seeded from A, user-editable)
-    review_frame_items_by_frame_index: dict[int, list[ReviewFrameItemViewModel]] = field(default_factory=dict)
+    review_frame_items_by_frame_index: FrameItemsByIndex = field(default_factory=dict)
     # Layer C: Tracker-derived tracks (written only by TrackingWorker, not user-editable)
-    tracked_frame_items_by_frame_index: dict[int, list[ReviewFrameItemViewModel]] = field(default_factory=dict)
+    tracked_frame_items_by_frame_index: FrameItemsByIndex = field(default_factory=dict)
     # Layer D: Final editable timeline (auto-seeded from C after tracking, user-editable)
-    final_frame_items_by_frame_index: dict[int, list[ReviewFrameItemViewModel]] = field(default_factory=dict)
+    final_frame_items_by_frame_index: FrameItemsByIndex = field(default_factory=dict)
 
     next_annotation_id: int = 1
     playback: PlaybackState = field(default_factory=PlaybackState)

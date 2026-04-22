@@ -1,25 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import numpy as np
 
-from app.infrastructure.video.detect_models import load_detection_model
+from app.domain.data.detection import DetectionResult
+from app.infrastructure.detection.detect_models import load_detection_model
 from app.shared.logging_cfg import get_logger
 
 logger = get_logger("Infrastructure->Video->FrameParser")
-
-
-@dataclass(slots=True)
-class DetectionResult:
-    bbox_xyxy: tuple[int, int, int, int]
-    confidence: float
-    label: str
-    item_id: str
-    color_hex: str = "#808080"
-
-    def __post_init__(self):
-        logger.trace("Created detection result {}", self)
 
 
 class FrameParser:
@@ -72,6 +59,7 @@ class FrameParser:
         )
         return results
 
-    def _load_model(self, model_name: str):
+    @staticmethod
+    def _load_model(model_name: str):
         logger.info("Loading detection model {}", model_name)
         return load_detection_model(model_name)

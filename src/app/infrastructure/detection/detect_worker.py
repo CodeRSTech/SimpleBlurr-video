@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from PySide6.QtCore import QThread, QMutex, QMutexLocker, Signal
 
-from app.infrastructure.video.frame_parser import DetectionResult, FrameParser
+from app.infrastructure.detection.frame_parser import FrameParser
+from app.domain.data.detection import DetectionResult
 from app.infrastructure.video.cv2_vid_reader import OpenCvVideoReader
 from app.shared.logging_cfg import get_logger
 

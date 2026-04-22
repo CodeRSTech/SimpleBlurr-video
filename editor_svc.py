@@ -6,15 +6,16 @@ from collections.abc import Iterable
 
 from app.domain.session import Session
 from app.infrastructure.video.cv2_vid_reader import OpenCvVideoReader
-from app.infrastructure.video.detect_models import get_available_detection_model_names
-from app.infrastructure.video.detect_worker import DetectionWorker
-from app.infrastructure.video.frame_parser import DetectionResult, FrameParser
-from app.infrastructure.video.track_worker import TrackingWorker
-from app.presentation.view_models import (
+from app.infrastructure.detection.detect_models import get_available_detection_model_names
+from app.infrastructure.detection.detect_worker import DetectionWorker
+from app.infrastructure.detection.frame_parser import FrameParser
+from app.domain.data.detection import DetectionResult
+from app.infrastructure.tracking.track_worker import TrackingWorker
+from app.domain.presentation import (
     DetectionModelItemViewModel,
     FrameDataItemViewModel,
     FramePresentationViewModel,
-    ReviewFrameItemViewModel,
+    FrameItemViewModel,
     SessionListItemViewModel,
 )
 from app.shared.logging_cfg import get_logger
@@ -491,7 +492,7 @@ class EditorAppService:
         items = [self._to_frame_data_item_view_model(item) for item in final_items]
         return FramePresentationViewModel(frame_data_items=items)
 
-    def get_final_frame_item(self, session_id: str, item_key: str) -> ReviewFrameItemViewModel | None:
+    def get_final_frame_item(self, session_id: str, item_key: str) -> FrameItemViewModel | None:
         """Return a single Layer D item on the current frame, if present."""
         session = self._get_session(session_id)
         frame_index = session.playback.current_frame_index
@@ -547,7 +548,7 @@ class EditorAppService:
 
         target_items = session.final_frame_items_by_frame_index.setdefault(next_frame_index, [])
         for source_item in items_to_duplicate:
-            duplicated = ReviewFrameItemViewModel(
+            duplicated = FrameItemViewModel(
                 item_id=f"manual-{session.next_annotation_id}",
                 source="Manual",
                 label=source_item.label,
@@ -659,7 +660,7 @@ class EditorAppService:
 
         self._seed_review_frame_from_raw_if_needed(session, frame_index)
 
-        manual_item = ReviewFrameItemViewModel(
+        manual_item = FrameItemViewModel(
             item_id=f"manual-{session.next_annotation_id}",
             source="Manual",
             label=label,
@@ -743,7 +744,7 @@ class EditorAppService:
 
         target_items = session.review_frame_items_by_frame_index.setdefault(next_frame_index, [])
         for source_item in items_to_duplicate:
-            duplicated_item = ReviewFrameItemViewModel(
+            duplicated_item = FrameItemViewModel(
                 item_id=f"manual-{session.next_annotation_id}",
                 source="Manual",
                 label=source_item.label,
@@ -778,7 +779,7 @@ class EditorAppService:
         items = [self._to_frame_data_item_view_model(item) for item in review_items]
         return FramePresentationViewModel(frame_data_items=items)
 
-    def get_review_frame_item(self, session_id: str, item_key: str) -> ReviewFrameItemViewModel | None:
+    def get_review_frame_item(self, session_id: str, item_key: str) -> FrameItemViewModel | None:
         """Return a single review item on the current frame, if present."""
         session = self._get_session(session_id)
         frame_index = session.playback.current_frame_index
@@ -898,7 +899,7 @@ class EditorAppService:
     # Protected Methods
     # -------------------------------------------------------------------------
 
-    def _get_effective_review_items(self, session: Session, frame_index: int) -> list[ReviewFrameItemViewModel]:
+    def _get_effective_review_items(self, session: Session, frame_index: int) -> list[FrameItemViewModel]:
         """Return the editable items currently visible for a frame."""
         self._seed_review_frame_from_raw_if_needed(session, frame_index)
         return session.review_frame_items_by_frame_index.get(frame_index, [])
@@ -908,7 +909,7 @@ class EditorAppService:
             session: Session,
             frame_index: int,
             item_key: str,
-    ) -> ReviewFrameItemViewModel | None:
+    ) -> FrameItemViewModel | None:
         """Look up a review item on the current frame by its stable item key."""
         self._seed_review_frame_from_raw_if_needed(session, frame_index)
         review_items = session.review_frame_items_by_frame_index.get(frame_index, [])
@@ -937,10 +938,10 @@ class EditorAppService:
     @staticmethod
     def _map_detection_results_to_review_items(
             detections: list[DetectionResult],
-    ) -> list[ReviewFrameItemViewModel]:
+    ) -> list[FrameItemViewModel]:
         """Convert raw parser results into the review-item shape used by the UI."""
         return [
-            ReviewFrameItemViewModel(
+            FrameItemViewModel(
                 item_id=detection.item_id,
                 source="Detection",
                 label=detection.label,
@@ -988,7 +989,7 @@ class EditorAppService:
         session.final_frame_items_by_frame_index[frame_index] = copy.deepcopy(tracked_items)
 
     @staticmethod
-    def _to_frame_data_item_view_model(item: ReviewFrameItemViewModel) -> FrameDataItemViewModel:
+    def _to_frame_data_item_view_model(item: FrameItemViewModel) -> FrameDataItemViewModel:
         # TODO: This COULD be the best place(s) to put a label-based filter (e.g. selecting only persons)
         """Map an internal review item to the table/overlay view model used by the UI."""
         return FrameDataItemViewModel(

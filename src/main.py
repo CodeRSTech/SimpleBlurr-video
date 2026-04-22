@@ -2,7 +2,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from app.application.editor_svc import EditorAppService
+from app.application.coordinator import AppCoordinator
 from app.shared.logging_cfg import configure_logging
 from app.ui_qt.controller import EditorController
 from app.ui_qt.main_win import MainWindow
@@ -17,13 +17,14 @@ def main() -> None:
 
     app = QApplication(sys.argv)
 
-    app_service = EditorAppService()
+    # 1. Instantiate the new Application layer facade
+    facade = AppCoordinator()
+
+    # 2. Instantiate the UI
     window = MainWindow()
-    _controller = EditorController(
-        app=app,
-        window=window,
-        app_service=app_service,
-    )
+
+    # 3. Wire them together via the Controller
+    controller = EditorController(app, window, facade)
 
     window.show()
     sys.exit(app.exec())
