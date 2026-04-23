@@ -134,10 +134,21 @@ class DetectionService:
         settings = session.settings
         changed_frames = 0
 
-        for frame_index, items in list(session.review_frame_items_by_frame_index.items()):
-            filtered = [i for i in items if self._passes_filter(i, settings)]
-            if len(filtered) != len(items):
-                session.review_frame_items_by_frame_index[frame_index] = filtered
+        # We must iterate over Layer A so we can "bring back" boxes if the threshold is lowered
+        for frame_index, raw_items in session.raw_frame_items_by_frame_index.items():
+            current_layer_b = session.review_frame_items_by_frame_index.get(frame_index, [])
+
+            # Preserve any manual annotations the user added
+            manual_items = [i for i in current_layer_b if i.source != "Detection"]
+
+            # Re-filter the pristine detections from Layer A
+            filtered_detections = [i for i in raw_items if self._passes_filter(i, settings)]
+
+            # Combine them
+            new_layer_b = manual_items + copy.deepcopy(filtered_detections)
+
+            if len(new_layer_b) != len(current_layer_b):
+                session.review_frame_items_by_frame_index[frame_index] = new_layer_b
                 changed_frames += 1
 
         logger.info(

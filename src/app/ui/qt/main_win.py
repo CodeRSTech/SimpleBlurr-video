@@ -34,7 +34,7 @@ from app.domain.presentation import (
     SessionSettingsViewModel,
 )
 from app.shared.logging_cfg import get_logger
-from app.ui_qt.prev_widget import PreviewWidget
+from app.ui.qt.prev_widget import PreviewWidget
 
 logger = get_logger("UI->MainWindow")
 
@@ -113,7 +113,7 @@ class MainWindow(QMainWindow):
     # --- Signals: Detection panel ---
     detect_current_frame_requested = Signal()
     start_background_detection_requested = Signal()
-    detection_model_changed = Signal(str)
+    model_changed = Signal(str)
     min_confidence_changed = Signal(float)
     chosen_labels_changed = Signal(str)
 
@@ -758,7 +758,7 @@ class MainWindow(QMainWindow):
     def _emit_model_changed(self) -> None:
         model_id = self.model_combo_box.currentData()
         if isinstance(model_id, str):
-            self.detection_model_changed.emit(model_id)
+            self.model_changed.emit(model_id)
 
     def _emit_tracking_strategy_changed(self) -> None:
         strategy_id = self.tracking_strategy_combo_box.currentData()

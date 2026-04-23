@@ -7,7 +7,7 @@ from PySide6.QtGui import QKeyEvent
 
 from app.application.coordinator import AppCoordinator
 from app.shared.logging_cfg import get_logger
-from app.ui_qt.annotation_dlg import ManualAnnotationDialog
+from app.ui.qt.annotation_dlg import ManualAnnotationDialog
 
 logger = get_logger("UI->AnnotationHandler")
 

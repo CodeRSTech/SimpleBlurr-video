@@ -11,7 +11,7 @@ class DetectionHandler:
         self._window = window
         self._facade = facade
 
-    def on_detection_model_changed(self, model_name: str, start_model_load_fn) -> None:
+    def on_model_changed(self, model_name: str, start_model_load_fn) -> None:
         session_id = self._window.get_selected_session_id()
         if session_id is None:
             return

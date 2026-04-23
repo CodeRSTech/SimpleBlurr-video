@@ -35,6 +35,9 @@ class AppCoordinator:
         self._export = ExportService(self._sm)
         logger.debug("EditorFacade initialized")
 
+    def draw_boxes_enabled(self, session_id: str) -> bool:
+        return self._sm.get_session(session_id).settings.draw_boxes
+
     def open_videos(self, paths: Iterable[str]) -> list[str]:
         return self._sm.open_videos(paths)
 
@@ -160,7 +163,7 @@ class AppCoordinator:
     def apply_filters_to_layer_b(self, session_id: str) -> None:
         self._detection.apply_filters_to_layer_b(session_id)
 
-    def get_frame_presentation(self, session_id: str) -> FramePresentationViewModel:
+    def get_detections_presentation(self, session_id: str) -> FramePresentationViewModel:
         session = self._sm.get_session(session_id)
         if session.has_detection_worker():
             self._detection.sync_detection_cache(session_id)
@@ -172,12 +175,12 @@ class AppCoordinator:
         return self._annotation.get_review_frame_item(session_id, item_key)
 
     def add_manual_frame_item(
-        self, session_id: str, label: str, bbox_xyxy: tuple, color_hex: str = "#00ff00"
+        self, session_id: str, label: str, bbox_xyxy: tuple[int, int, int, int], color_hex: str = "#00ff00"
     ) -> None:
         self._annotation.add_manual_frame_item(session_id, label, bbox_xyxy, color_hex)
 
     def update_manual_frame_item(
-        self, session_id: str, item_key: str, label: str, bbox_xyxy: tuple
+        self, session_id: str, item_key: str, label: str, bbox_xyxy: tuple[int, int, int, int]
     ) -> None:
         self._annotation.update_manual_frame_item(session_id, item_key, label, bbox_xyxy)
 
@@ -206,6 +209,8 @@ class AppCoordinator:
         self._annotation.reset_all_review_frames(session_id)
 
     def start_background_tracking(self, session_id: str) -> None:
+        self._detection.sync_detection_cache(session_id)
+
         try:
             self._tracking.start_background_tracking(session_id)
         except ValueError:
@@ -214,7 +219,7 @@ class AppCoordinator:
     def sync_tracking_cache(self, session_id: str) -> None:
         self._tracking.sync_tracking_cache(session_id)
 
-    def get_final_presentation(self, session_id: str) -> FramePresentationViewModel:
+    def get_trackers_presentation(self, session_id: str) -> FramePresentationViewModel:
         return self._tracking.get_final_presentation(session_id)
 
     def get_final_frame_item(

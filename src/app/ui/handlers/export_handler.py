@@ -8,7 +8,7 @@ from app.application.coordinator import AppCoordinator
 from app.infrastructure.export.export_all_worker import ExportAllWorker
 from app.infrastructure.export.export_worker import ExportWorker
 from app.shared.logging_cfg import get_logger
-from app.ui_qt.export_all_dlg import ExportAllDialog
+from app.ui.qt.export_all_dlg import ExportAllDialog
 
 logger = get_logger("UI->ExportHandler")
 

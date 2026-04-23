@@ -4,8 +4,8 @@ from PySide6.QtWidgets import QApplication
 
 from app.application.coordinator import AppCoordinator
 from app.shared.logging_cfg import configure_logging
-from app.ui_qt.controller import EditorController
-from app.ui_qt.main_win import MainWindow
+from app.ui.controller import EditorController
+from app.ui.qt.main_win import MainWindow
 
 
 def main() -> None:
@@ -17,14 +17,14 @@ def main() -> None:
 
     app = QApplication(sys.argv)
 
-    # 1. Instantiate the new Application layer facade
-    facade = AppCoordinator()
+    # 1. Instantiate the new Application layer app_coordinator
+    app_coordinator = AppCoordinator()
 
     # 2. Instantiate the UI
     window = MainWindow()
 
     # 3. Wire them together via the Controller
-    controller = EditorController(app, window, facade)
+    controller = EditorController(app, window, app_coordinator)
 
     window.show()
     sys.exit(app.exec())
