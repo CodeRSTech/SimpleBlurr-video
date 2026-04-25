@@ -1,4 +1,4 @@
-from app.domain.presentation import FrameItemViewModel
+from app.domain.views import FrameItemViewModel
 
 __all__ = ["FrameItemsByIndex"]
 

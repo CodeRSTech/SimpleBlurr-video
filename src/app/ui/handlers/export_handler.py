@@ -14,29 +14,29 @@ logger = get_logger("UI->ExportHandler")
 
 
 class ExportHandler:
-    def __init__(self, window, facade: AppCoordinator) -> None:
+    def __init__(self, window, app_coordinator: AppCoordinator) -> None:
         self._window = window
-        self._facade = facade
+        self._app_coordinator = app_coordinator
         self._export_worker: ExportWorker | None = None
         self._export_all_worker: ExportAllWorker | None = None
 
     def on_draw_boxes_changed(self, enabled: bool, render_fn) -> None:
         session_id = self._window.get_selected_session_id()
         if session_id:
-            self._facade.update_session_settings(session_id, draw_boxes=enabled)
+            self._app_coordinator.update_session_settings(session_id, draw_boxes=enabled)
             render_fn(session_id)
 
     def on_blur_toggled(self, enabled: bool, render_fn) -> None:
         self._window.set_blur_strength_visible(enabled)
         session_id = self._window.get_selected_session_id()
         if session_id:
-            self._facade.update_session_settings(session_id, blur_enabled=enabled)
+            self._app_coordinator.update_session_settings(session_id, blur_enabled=enabled)
             render_fn(session_id)
 
     def on_blur_strength_changed(self, value: float, render_fn) -> None:
         session_id = self._window.get_selected_session_id()
         if session_id:
-            self._facade.update_session_settings(session_id, blur_strength=value)
+            self._app_coordinator.update_session_settings(session_id, blur_strength=value)
             render_fn(session_id)
 
     def on_export(self) -> None:
@@ -44,7 +44,7 @@ class ExportHandler:
         if not session_id:
             return
 
-        if not self._facade.session_is_ready_for_export(session_id):
+        if not self._app_coordinator.session_is_ready_for_export(session_id):
             self._window.show_error("Export Failed", "No tracking results to export. Run detection and tracking first.")
             return
 
@@ -59,13 +59,13 @@ class ExportHandler:
         self._window.set_status_text("Exporting video...")
         self._window.export_button.setEnabled(False)
 
-        self._export_worker = ExportWorker(self._facade._export, session_id, output_path)
+        self._export_worker = ExportWorker(self._app_coordinator._export, session_id, output_path)
         self._export_worker.finished_processing.connect(self._on_export_finished)
         self._export_worker.error_occurred.connect(self._on_export_failed)
         self._export_worker.start()
 
     def on_export_all(self) -> None:
-        session_ids = self._facade.all_session_ids()
+        session_ids = self._app_coordinator.all_session_ids()
         if not session_ids:
             self._window.show_error("Export All", "No videos are open.")
             return
@@ -78,7 +78,7 @@ class ExportHandler:
         self._window.set_status_text(f"Batch exporting {len(session_ids)} video(s)...")
         self._window.export_all_button.setEnabled(False)
 
-        self._export_all_worker = ExportAllWorker(self._facade, session_ids, out_dir, prefix, suffix)
+        self._export_all_worker = ExportAllWorker(self._app_coordinator, session_ids, out_dir, prefix, suffix)
         self._export_all_worker.session_started.connect(
             lambda sid: self._window.set_status_text(f"Exporting: {os.path.basename(sid)}...")
         )

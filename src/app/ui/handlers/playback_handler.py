@@ -7,9 +7,9 @@ logger = get_logger("UI->PlaybackHandler")
 
 
 class PlaybackHandler:
-    def __init__(self, window, facade: AppCoordinator, render_fn) -> None:
+    def __init__(self, window, app_coordinator: AppCoordinator, render_fn) -> None:
         self._window = window
-        self._facade = facade
+        self._app_coordinator = app_coordinator
         self._render_fn = render_fn
 
     def on_play(self, timer_start_fn) -> None:
@@ -17,11 +17,11 @@ class PlaybackHandler:
         if session_id is None:
             return
         try:
-            self._facade.set_active_session(session_id)
-            self._facade.set_session_playing(session_id, True)
-            interval = self._facade.get_session_frame_interval_ms(session_id)
+            self._app_coordinator.set_active_session(session_id)
+            self._app_coordinator.set_session_is_playing(session_id, True)
+            interval = self._app_coordinator.get_session_frame_interval_ms(session_id)
             timer_start_fn(interval)
-            self._window.set_status_text(self._facade.get_active_status_text())
+            self._window.set_status_text(self._app_coordinator.get_active_status_text())
         except Exception as exc:
             self._window.show_error("Play Failed", str(exc))
 
@@ -35,8 +35,8 @@ class PlaybackHandler:
             return
         try:
             stop_playback_fn()
-            self._facade.set_active_session(session_id)
-            self._facade.load_next_frame(session_id)
+            self._app_coordinator.set_active_session(session_id)
+            self._app_coordinator.load_next_frame(session_id)
             self._render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Next Frame Failed", str(exc))
@@ -47,8 +47,8 @@ class PlaybackHandler:
             return
         try:
             stop_playback_fn()
-            self._facade.set_active_session(session_id)
-            self._facade.load_previous_frame(session_id)
+            self._app_coordinator.set_active_session(session_id)
+            self._app_coordinator.load_previous_frame(session_id)
             self._render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Previous Frame Failed", str(exc))
@@ -59,8 +59,8 @@ class PlaybackHandler:
             return
         try:
             stop_playback_fn()
-            self._facade.set_active_session(session_id)
-            self._facade.load_frame(session_id, frame_index)
+            self._app_coordinator.set_active_session(session_id)
+            self._app_coordinator.load_frame(session_id, frame_index)
             self._render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Seek Failed", str(exc))
@@ -72,12 +72,12 @@ class PlaybackHandler:
             return
 
         try:
-            self._facade.set_active_session(session_id)
-            if self._facade.is_at_last_frame(session_id):
+            self._app_coordinator.set_active_session(session_id)
+            if self._app_coordinator.is_at_last_frame(session_id):
                 stop_playback_fn()
                 return
 
-            self._facade.load_next_frame(session_id)
+            self._app_coordinator.load_next_frame(session_id)
             self._render_fn(session_id)
         except Exception as exc:
             stop_playback_fn()

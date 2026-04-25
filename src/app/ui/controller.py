@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, QThread
 from PySide6.QtWidgets import QApplication
 
 from app.application.coordinator import AppCoordinator
@@ -84,80 +84,24 @@ class EditorController:
         """
         Connects all necessary signals and slots for the UI components.
         """
-
-        # Local references to the UI components and handlers to shorten code
-        # ==================================================================
-        app = self._app
         window = self._window
-
-        player = self._playback_handler
-        exporter = self._export_handler
-        detector = self._detection_handler
-        tracker = self._tracking_handler
-        annotator = self._annotation_handler
-        session = self._session_handler
-
-        play_timer = self._playback_timer
-
-        about_to_quit_fx = self._on_about_to_quit
-        stop_play_fx = self._stop_playback
-        render_fx = self._render_saved_frame
-        model_load_fx = self._start_model_load
 
         # Connect signals to slots
         # ========================
-
         # App Lifecycle
-        app.aboutToQuit.connect(about_to_quit_fx)
-        play_timer.timeout.connect(lambda: player.on_playback_tick(stop_play_fx))
-
+        self._app.aboutToQuit.connect(self._on_about_to_quit)
         # Session
-        window.open_videos_requested.connect(lambda paths: session.on_open_videos(paths, render_fx))
-        window.session_selected.connect(lambda sid: session.on_session_selected(sid, stop_play_fx, render_fx))
-
+        self.__connect_signals_to_session_handler(window, self._session_handler)
         # Detection
-        window.model_changed.connect(lambda model: detector.on_model_changed(model, model_load_fx))
-        window.detect_current_frame_requested.connect(lambda: detector.on_detect_current_frame(render_fx))
-        window.start_background_detection_requested.connect(detector.on_start_background_detection)
-        window.min_confidence_changed.connect(lambda val: detector.on_min_confidence_changed(val, render_fx))
-        window.chosen_labels_changed.connect(lambda val: detector.on_chosen_labels_changed(val, render_fx))
-
+        self.__connect_signals_to_detection_handler(window, self._detection_handler)
         # Tracking
-        window.start_tracking_requested.connect(lambda s, src: tracker.on_start_tracking(render_fx))
-        window.tracking_strategy_changed.connect(tracker.on_strategy_changed)
-        window.tracking_source_changed.connect(tracker.on_source_changed)
-        window.min_iou_changed.connect(tracker.on_min_iou_changed)
-        window.min_tracker_confidence_changed.connect(tracker.on_min_tracker_confidence_changed)
-        window.confidence_decay_changed.connect(tracker.on_confidence_decay_changed)
-
-        # Frame Data Annotation (Row 1)
-        window.add_manual_frame_item_requested.connect(lambda: annotator.on_add_manual(render_fx))
-        window.edit_selected_frame_item_requested.connect(lambda: annotator.on_edit_selected(render_fx))
-        window.delete_selected_frame_item_requested.connect(lambda: annotator.on_delete_selected(render_fx))
-        window.duplicate_selected_frame_item_requested.connect(lambda: annotator.on_duplicate_to_next(render_fx))
-
-        # Frame Data Annotation (Row 2)
-        window.duplicate_to_prev_frame_requested.connect(lambda: annotator.on_duplicate_to_prev(render_fx))
-        window.reset_current_frame_review_requested.connect(lambda: annotator.on_reset_frame(render_fx))
-        window.reset_all_review_requested.connect(lambda: annotator.on_reset_all(render_fx))
-        window.reset_tracker_frame_requested.connect(lambda: annotator.on_reset_tracker_frame(render_fx))
-        window.reset_all_trackers_requested.connect(lambda: annotator.on_reset_all_trackers(render_fx))
-        window.delete_next_occurrences_requested.connect(lambda: annotator.on_delete_next_occurrences(render_fx))
-        window.delete_prev_occurrences_requested.connect(lambda: annotator.on_delete_prev_occurrences(render_fx))
-
+        self.__connect_signals_to_tracker_handler(window, self._tracking_handler)
+        # Annotation
+        self.__connect_signals_to_annotation_handler(window, self._annotation_handler)
         # Playback
-        window.play_requested.connect(lambda: player.on_play(play_timer.start))
-        window.pause_requested.connect(lambda: player.on_pause(stop_play_fx))
-        window.next_frame_requested.connect(lambda: player.on_next_frame(stop_play_fx))
-        window.previous_frame_requested.connect(lambda: player.on_previous_frame(stop_play_fx))
-        window.seek_requested.connect(lambda idx: player.on_seek(idx, stop_play_fx))
-
+        self.__connect_signals_to_playback_handler(window, self._playback_handler, self._playback_timer)
         # Export & Preview/Render
-        window.export_requested.connect(exporter.on_export)
-        window.export_all_requested.connect(exporter.on_export_all)
-        window.draw_boxes_changed.connect(lambda val: exporter.on_draw_boxes_changed(val, render_fx))
-        window.blur_toggled.connect(lambda val: exporter.on_blur_toggled(val, render_fx))
-        window.blur_strength_changed.connect(lambda val: exporter.on_blur_strength_changed(val, render_fx))
+        self.__connect_signals_to_export_handler(window, exporter=self._export_handler)
 
     def _render_saved_frame(self, session_id: str) -> None:
         # Local references to the UI components and handlers to shorten code
@@ -213,7 +157,7 @@ class EditorController:
                 self._window.show_error("Model Change Failed", "A model is already loading.")
                 return
         except ValueError:
-            logger.opt(exception=True).debug("Model load thread not initialized.  ")
+            logger.debug("Model load thread not initialized. Creating new thread.")
 
         self._model_load_thread = QThread()
         self._model_load_worker = ModelLoadWorker(self._app_coordinator, session_id, model_name)
@@ -228,14 +172,10 @@ class EditorController:
 
         model_load_worker.moveToThread(model_load_thread)
 
-        model_load_thread.started.connect(model_load_worker.run)
-        model_load_worker.finished.connect(lambda sid, m: self._on_model_load_finished(sid, m))
-        model_load_worker.failed.connect(lambda sid, m, err: self._on_model_load_failed(sid, m, err))
-        model_load_worker.finished.connect(model_load_thread.quit)
-        model_load_worker.failed.connect(model_load_thread.quit)
-        model_load_thread.finished.connect(self._cleanup_model_load)
+        self.__connect_model_worker_and_thread(model_load_thread, model_load_worker)
 
         model_load_thread.start()
+
 
     def _on_model_load_finished(self, session_id: str, model_name: str) -> None:
         logger.debug(f"Model load finished for session {session_id} with model {model_name}")
@@ -271,4 +211,77 @@ class EditorController:
                 self._model_load_thread.quit()
                 self._model_load_thread.wait()
         except ValueError:
-            logger.opt(exception=True).debug("Model load thread was never initialized, Quitting anyway.")
+            logger.debug("Model load thread was never initialized, Quitting anyway.")
+
+    def __connect_signals_to_session_handler(self, window: MainWindow, session: SessionHandler):
+        render_fx = self._render_saved_frame
+        stop_play_fx = self._stop_playback
+
+        window.open_videos_requested.connect(lambda paths: session.on_open_videos(paths, render_fx))
+        window.session_selected.connect(lambda sid: session.on_session_selected(sid, stop_play_fx, render_fx))
+
+    def __connect_signals_to_detection_handler(self, window: MainWindow, detector: DetectionHandler):
+        model_load_fx = self._start_model_load
+        render_fx = self._render_saved_frame
+
+        window.model_changed.connect(lambda model: detector.on_model_changed(model, model_load_fx))
+        window.detect_current_frame_requested.connect(lambda: detector.on_detect_current_frame(render_fx))
+        window.start_background_detection_requested.connect(detector.on_start_background_detection)
+        window.min_confidence_changed.connect(lambda val: detector.on_min_confidence_changed(val, render_fx))
+        window.chosen_labels_changed.connect(lambda val: detector.on_chosen_labels_changed(val, render_fx))
+
+    def __connect_signals_to_tracker_handler(self, window: MainWindow, tracker: TrackingHandler):
+        render_fx = self._render_saved_frame
+
+        window.start_tracking_requested.connect(lambda s, src: tracker.on_start_tracking(render_fx))
+        window.tracking_strategy_changed.connect(tracker.on_strategy_changed)
+        window.tracking_source_changed.connect(tracker.on_source_changed)
+        window.min_iou_changed.connect(tracker.on_min_iou_changed)
+        window.min_tracker_confidence_changed.connect(tracker.on_min_tracker_confidence_changed)
+        window.confidence_decay_changed.connect(tracker.on_confidence_decay_changed)
+
+    def __connect_signals_to_annotation_handler(self, window: MainWindow, annotator: AnnotationHandler):
+        render_fx = self._render_saved_frame
+        # Frame Data Annotation (Row 1)
+        window.add_manual_frame_item_requested.connect(lambda: annotator.on_add_manual(render_fx))
+        window.edit_selected_frame_item_requested.connect(lambda: annotator.on_edit_selected(render_fx))
+        window.delete_selected_frame_item_requested.connect(lambda: annotator.on_delete_selected(render_fx))
+        window.duplicate_selected_frame_item_requested.connect(lambda: annotator.on_duplicate_to_next(render_fx))
+
+        # Frame Data Annotation (Row 2)
+        window.duplicate_to_prev_frame_requested.connect(lambda: annotator.on_duplicate_to_prev(render_fx))
+        window.reset_current_frame_review_requested.connect(lambda: annotator.on_reset_frame(render_fx))
+        window.reset_all_review_requested.connect(lambda: annotator.on_reset_all(render_fx))
+        window.reset_tracker_frame_requested.connect(lambda: annotator.on_reset_tracker_frame(render_fx))
+        window.reset_all_trackers_requested.connect(lambda: annotator.on_reset_all_trackers(render_fx))
+        window.delete_next_occurrences_requested.connect(lambda: annotator.on_delete_next_occurrences(render_fx))
+        window.delete_prev_occurrences_requested.connect(lambda: annotator.on_delete_prev_occurrences(render_fx))
+
+    def __connect_signals_to_playback_handler(self, window: MainWindow, player: PlaybackHandler,
+                                              play_timer: QTimer) -> QTimer:
+        stop_play_fx = self._stop_playback
+        play_timer = self._playback_timer
+        window.play_requested.connect(lambda: player.on_play(play_timer.start))
+        window.pause_requested.connect(lambda: player.on_pause(stop_play_fx))
+        window.next_frame_requested.connect(lambda: player.on_next_frame(stop_play_fx))
+        window.previous_frame_requested.connect(lambda: player.on_previous_frame(stop_play_fx))
+        window.seek_requested.connect(lambda idx: player.on_seek(idx, stop_play_fx))
+        play_timer.timeout.connect(lambda: player.on_playback_tick(stop_play_fx))
+        return play_timer
+
+    def __connect_signals_to_export_handler(self, window: MainWindow, exporter: ExportHandler):
+        exporter = self._export_handler
+        render_fx = self._render_saved_frame
+        window.export_requested.connect(exporter.on_export)
+        window.export_all_requested.connect(exporter.on_export_all)
+        window.draw_boxes_changed.connect(lambda val: exporter.on_draw_boxes_changed(val, render_fx))
+        window.blur_toggled.connect(lambda val: exporter.on_blur_toggled(val, render_fx))
+        window.blur_strength_changed.connect(lambda val: exporter.on_blur_strength_changed(val, render_fx))
+
+    def __connect_model_worker_and_thread(self, model_load_thread: QThread, model_load_worker: ModelLoadWorker):
+        model_load_thread.started.connect(model_load_worker.run)
+        model_load_worker.finished.connect(lambda sid, m: self._on_model_load_finished(sid, m))
+        model_load_worker.failed.connect(lambda sid, m, err: self._on_model_load_failed(sid, m, err))
+        model_load_worker.finished.connect(model_load_thread.quit)
+        model_load_worker.failed.connect(model_load_thread.quit)
+        model_load_thread.finished.connect(self._cleanup_model_load)

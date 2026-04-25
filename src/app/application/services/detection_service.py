@@ -9,7 +9,7 @@ from app.infrastructure.detection.detect_models import get_available_detection_m
 from app.infrastructure.detection.detect_worker import DetectionWorker
 from app.infrastructure.detection.frame_parser import FrameParser
 from app.domain.data.detection import DetectionResult
-from app.domain.presentation import DetectionModelItemViewModel, FrameItemViewModel
+from app.domain.views import DetectionModelItemViewModel, FrameItemViewModel
 from app.shared.logging_cfg import get_logger
 
 logger = get_logger("Application->DetectionService")

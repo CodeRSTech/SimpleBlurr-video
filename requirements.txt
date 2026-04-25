@@ -11,9 +11,9 @@ mtcnn
 
 # Configuration and Utilities
 pyyaml
-opencv-python
 torchvision
 torch-utils
 pandas
 configparser
 PySide6
+av

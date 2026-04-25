@@ -4,7 +4,7 @@ HungarianIoUTracker — pure NumPy/SciPy multi-object tracker.
 Architectural contract
 ----------------------
 - ZERO Qt dependencies.
-- ZERO UI / presentation imports.
+- ZERO UI / views imports.
 - Accepts and returns only plain Python / NumPy data.
 - The TrackingWorker (infrastructure layer) is responsible for unpacking
   ReviewFrameItemViewModel dicts, feeding this engine, and repacking results.

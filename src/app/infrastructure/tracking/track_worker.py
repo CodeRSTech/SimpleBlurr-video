@@ -10,7 +10,7 @@ from app.infrastructure.tracking.hungarian_tracker import (
     TrackInput,
     TrackState,
 )
-from app.domain.presentation.view_models import FrameItemViewModel
+from app.domain.views.view_models import FrameItemViewModel
 from app.domain.processing_settings import ProcessingSettings
 from app.shared.logging_cfg import get_logger
 from app.domain.typing import FrameItemsByIndex

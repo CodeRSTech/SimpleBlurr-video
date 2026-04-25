@@ -8,7 +8,7 @@ from app.domain.data.vid_data import VideoMetadata
 
 from app.infrastructure.detection.frame_parser import FrameParser
 from app.infrastructure.detection.detect_worker import DetectionWorker
-from app.infrastructure.video.cv2_vid_reader import OpenCvVideoReader
+from app.infrastructure.video.vid_reader import VideoReader
 from app.infrastructure.tracking.track_worker import TrackingWorker
 
 from app.domain.typing import FrameItemsByIndex
@@ -21,7 +21,7 @@ logger = get_logger("Domain->Session")
 class Session:
     session_id: str
     metadata: VideoMetadata
-    reader: OpenCvVideoReader
+    reader: VideoReader
     _parser: FrameParser | None = None
     _detection_worker: DetectionWorker | None = None
     _tracking_worker: TrackingWorker | None = None

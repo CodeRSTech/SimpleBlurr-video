@@ -3,7 +3,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from app.domain.presentation import FrameDataItemViewModel
+from app.domain.views import FrameDataItemViewModel
 
 
 def draw_frame_overlays(

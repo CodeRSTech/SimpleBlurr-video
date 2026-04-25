@@ -4,8 +4,8 @@ import os
 from collections.abc import Iterable
 
 from app.domain.session import Session
-from app.infrastructure.video.cv2_vid_reader import OpenCvVideoReader
-from app.domain.presentation import SessionListItemViewModel
+from app.infrastructure.video.vid_reader import VideoReader
+from app.domain.views import SessionListItemViewModel
 from app.shared.logging_cfg import get_logger
 
 logger = get_logger("Application->SessionManager")
@@ -37,7 +37,7 @@ class SessionManager:
                 continue
 
             logger.info("Opening video: {}", path)
-            reader = OpenCvVideoReader(path)
+            reader = VideoReader(path)
             metadata = reader.read_metadata()
             session = Session(session_id=path, metadata=metadata, reader=reader)
             self._sessions[path] = session

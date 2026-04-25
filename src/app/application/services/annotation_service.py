@@ -5,7 +5,7 @@ from collections.abc import Iterable
 
 from app.application.session_manager import SessionManager
 from app.domain.session import Session
-from app.domain.presentation import (
+from app.domain.views import (
     FrameDataItemViewModel,
     FramePresentationViewModel,
     FrameItemViewModel,

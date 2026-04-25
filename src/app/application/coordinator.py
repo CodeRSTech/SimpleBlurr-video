@@ -8,7 +8,7 @@ from app.application.services.export_service import ExportService
 from app.application.session_manager import SessionManager
 from app.application.services.tracking_service import TrackingService
 from app.domain.session import Session
-from app.domain.presentation import (
+from app.domain.views import (
     DetectionModelItemViewModel,
     FramePresentationViewModel,
     FrameItemViewModel,
@@ -17,7 +17,7 @@ from app.domain.presentation import (
 )
 from app.shared.logging_cfg import get_logger
 
-logger = get_logger("Application->EditorFacade")
+logger = get_logger("Application->AppCoordinator")
 
 
 class AppCoordinator:
@@ -33,7 +33,7 @@ class AppCoordinator:
         self._annotation = AnnotationService(self._sm)
         self._tracking = TrackingService(self._sm)
         self._export = ExportService(self._sm)
-        logger.debug("EditorFacade initialized")
+        logger.debug("AppCoordinator initialized")
 
     def draw_boxes_enabled(self, session_id: str) -> bool:
         return self._sm.get_session(session_id).settings.draw_boxes
@@ -59,12 +59,15 @@ class AppCoordinator:
     def close(self) -> None:
         self._sm.close_all()
 
-    def load_frame(self, session_id: str, frame_index: int):
+    def load_frame(self, session_id: str, frame_index: int, is_next_frame: bool = False):
         session = self._sm.get_session(session_id)
         max_idx = max(session.metadata.frame_count - 1, 0)
-        safe = max(0, min(frame_index, max_idx))
-        frame = session.reader.read_frame(safe)
-        session.playback.current_frame_index = safe
+        safe_idx = max(0, min(frame_index, max_idx))
+        if is_next_frame:
+            frame = session.reader.read_next_frame()
+        else:
+            frame = session.reader.read_frame(safe_idx)
+        session.playback.current_frame_index = safe_idx
         return frame
 
     def load_next_frame(self, session_id: str):
@@ -73,7 +76,7 @@ class AppCoordinator:
             session.playback.current_frame_index + 1,
             max(session.metadata.frame_count - 1, 0),
         )
-        return self.load_frame(session_id, next_idx)
+        return self.load_frame(session_id, next_idx, is_next_frame=True)
 
     def load_previous_frame(self, session_id: str):
         session = self._sm.get_session(session_id)
@@ -108,7 +111,7 @@ class AppCoordinator:
     def is_session_playing(self, session_id: str) -> bool:
         return self._sm.get_session(session_id).playback.is_playing
 
-    def set_session_playing(self, session_id: str, is_playing: bool) -> Session:
+    def set_session_is_playing(self, session_id: str, is_playing: bool) -> Session:
         session = self._sm.get_session(session_id)
         session.playback.is_playing = is_playing
         return session

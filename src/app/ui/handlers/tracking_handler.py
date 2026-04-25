@@ -7,9 +7,9 @@ logger = get_logger("UI->TrackingHandler")
 
 
 class TrackingHandler:
-    def __init__(self, window, facade: AppCoordinator) -> None:
+    def __init__(self, window, app_coordinator: AppCoordinator) -> None:
         self._window = window
-        self._facade = facade
+        self._app_coordinator = app_coordinator
 
     def on_start_tracking(self, render_fn) -> None:
         session_id = self._window.get_selected_session_id()
@@ -18,10 +18,10 @@ class TrackingHandler:
         try:
             self._window.set_tracking_loading_state(True)
             self._window.set_tracking_config_warning_visible(False)
-            self._facade.set_active_session(session_id)
-            self._facade.start_background_tracking(session_id)
+            self._app_coordinator.set_active_session(session_id)
+            self._app_coordinator.start_background_tracking(session_id)
 
-            active = self._facade.get_active_session()
+            active = self._app_coordinator.get_active_session()
             if active and active.has_tracking_worker():
                 active.tracking_worker.finished_processing.connect(
                     lambda: self._on_tracking_finished(session_id, render_fn)
@@ -52,14 +52,14 @@ class TrackingHandler:
         session_id = self._window.get_selected_session_id()
         if session_id is None:
             return
-        self._facade.update_session_settings(session_id, **{key: value})
-        active = self._facade.get_active_session()
+        self._app_coordinator.update_session_settings(session_id, **{key: value})
+        active = self._app_coordinator.get_active_session()
         if active and active.tracked_frame_items_by_frame_index:
             self._window.set_tracking_config_warning_visible(True)
 
     def _on_tracking_finished(self, session_id: str, render_fn) -> None:
         logger.info("Tracking finished for session {}", session_id)
-        self._facade.sync_tracking_cache(session_id)
+        self._app_coordinator.sync_tracking_cache(session_id)
         self._window.set_tracking_loading_state(False)
         render_fn(session_id)
 

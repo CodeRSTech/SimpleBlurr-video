@@ -13,9 +13,9 @@ logger = get_logger("UI->AnnotationHandler")
 
 
 class AnnotationHandler:
-    def __init__(self, window, facade: AppCoordinator) -> None:
+    def __init__(self, window, app_coordinator: AppCoordinator) -> None:
         self._window = window
-        self._facade = facade
+        self._app_coordinator = app_coordinator
         self._last_move_key: int | None = None
         self._last_move_ts: float = 0.0
         self._move_repeat_count: int = 0
@@ -40,7 +40,7 @@ class AnnotationHandler:
             return
 
         try:
-            self._facade.add_manual_frame_item(session_id, label, bbox_xyxy)
+            self._app_coordinator.add_manual_frame_item(session_id, label, bbox_xyxy)
             render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Add Failed", str(exc))
@@ -57,9 +57,9 @@ class AnnotationHandler:
 
         tab = self._window.get_active_tab_index()
         item = (
-            self._facade.get_final_frame_item(session_id, keys[0])
+            self._app_coordinator.get_final_frame_item(session_id, keys[0])
             if tab == 1
-            else self._facade.get_review_frame_item(session_id, keys[0])
+            else self._app_coordinator.get_review_frame_item(session_id, keys[0])
         )
 
         if item is None:
@@ -85,7 +85,7 @@ class AnnotationHandler:
                 self._window.show_error("Edit Info", "Editing Layer D directly is limited. Edit Layer B and re-track.")
                 return
 
-            self._facade.update_manual_frame_item(session_id, item.item_key, label, bbox_xyxy)
+            self._app_coordinator.update_manual_frame_item(session_id, item.item_key, label, bbox_xyxy)
             render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Edit Failed", str(exc))
@@ -99,9 +99,9 @@ class AnnotationHandler:
         tab = self._window.get_active_tab_index()
         try:
             if tab == 1:
-                self._facade.delete_final_frame_items(session_id, keys)
+                self._app_coordinator.delete_final_frame_items(session_id, keys)
             else:
-                self._facade.delete_frame_items(session_id, keys)
+                self._app_coordinator.delete_frame_items(session_id, keys)
             render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Delete Failed", str(exc))
@@ -122,14 +122,14 @@ class AnnotationHandler:
         try:
             if tab == 1:
                 if direction == 1:
-                    self._facade.duplicate_final_frame_items_to_next_frame(session_id, keys)
+                    self._app_coordinator.duplicate_final_frame_items_to_next_frame(session_id, keys)
                 else:
-                    self._facade.duplicate_final_frame_items_to_prev_frame(session_id, keys)
+                    self._app_coordinator.duplicate_final_frame_items_to_prev_frame(session_id, keys)
             else:
                 if direction == 1:
-                    self._facade.duplicate_frame_items_to_next_frame(session_id, keys)
+                    self._app_coordinator.duplicate_frame_items_to_next_frame(session_id, keys)
                 else:
-                    self._facade.duplicate_frame_items_to_prev_frame(session_id, keys)
+                    self._app_coordinator.duplicate_frame_items_to_prev_frame(session_id, keys)
             render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Duplicate Failed", str(exc))
@@ -139,8 +139,8 @@ class AnnotationHandler:
         if session_id is None:
             return
         try:
-            idx = self._facade.get_session_current_frame_index(session_id)
-            self._facade.reset_review_frame(session_id, idx)
+            idx = self._app_coordinator.get_session_current_frame_index(session_id)
+            self._app_coordinator.reset_review_frame(session_id, idx)
             render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Reset Failed", str(exc))
@@ -150,7 +150,7 @@ class AnnotationHandler:
         if session_id is None:
             return
         try:
-            self._facade.reset_all_review_frames(session_id)
+            self._app_coordinator.reset_all_review_frames(session_id)
             render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Reset All Failed", str(exc))
@@ -160,8 +160,8 @@ class AnnotationHandler:
         if session_id is None:
             return
         try:
-            idx = self._facade.get_session_current_frame_index(session_id)
-            self._facade.reset_final_frame(session_id, idx)
+            idx = self._app_coordinator.get_session_current_frame_index(session_id)
+            self._app_coordinator.reset_final_frame(session_id, idx)
             render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Reset Tracker Frame Failed", str(exc))
@@ -171,7 +171,7 @@ class AnnotationHandler:
         if session_id is None:
             return
         try:
-            self._facade.reset_all_final_frames(session_id)
+            self._app_coordinator.reset_all_final_frames(session_id)
             render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Reset All Trackers Failed", str(exc))
@@ -196,12 +196,12 @@ class AnnotationHandler:
         try:
             # item_key format is "track:track-uid" or "manual:manual-id", we need the raw item_id
             for key in keys:
-                item = self._facade.get_final_frame_item(session_id, key)
+                item = self._app_coordinator.get_final_frame_item(session_id, key)
                 if item:
                     if direction == 1:
-                        self._facade.delete_next_occurrences(session_id, item.item_id)
+                        self._app_coordinator.delete_next_occurrences(session_id, item.item_id)
                     else:
-                        self._facade.delete_prev_occurrences(session_id, item.item_id)
+                        self._app_coordinator.delete_prev_occurrences(session_id, item.item_id)
             render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Delete Occurrences Failed", str(exc))
@@ -233,9 +233,9 @@ class AnnotationHandler:
         tab = self._window.get_active_tab_index()
         try:
             if tab == 1:
-                moved = self._facade.move_final_frame_items(session_id, keys, dx, dy)
+                moved = self._app_coordinator.move_final_frame_items(session_id, keys, dx, dy)
             else:
-                moved = self._facade.move_manual_frame_items(session_id, keys, dx, dy)
+                moved = self._app_coordinator.move_manual_frame_items(session_id, keys, dx, dy)
             if moved > 0:
                 render_fn(session_id)
         except Exception as exc:

@@ -5,13 +5,13 @@ import os
 from collections.abc import Iterable
 
 from app.domain.session import Session
-from app.infrastructure.video.cv2_vid_reader import OpenCvVideoReader
+from app.infrastructure.video.vid_reader import OpenCvVideoReader
 from app.infrastructure.detection.detect_models import get_available_detection_model_names
 from app.infrastructure.detection.detect_worker import DetectionWorker
 from app.infrastructure.detection.frame_parser import FrameParser
 from app.domain.data.detection import DetectionResult
 from app.infrastructure.tracking.track_worker import TrackingWorker
-from app.domain.presentation import (
+from app.domain.views import (
     DetectionModelItemViewModel,
     FrameDataItemViewModel,
     FramePresentationViewModel,
@@ -465,7 +465,7 @@ class EditorAppService:
         )
 
     def get_tracker_presentation(self, session_id: str) -> FramePresentationViewModel:
-        """Build the presentation model for Layer C (read-only tracker source)."""
+        """Build the views model for Layer C (read-only tracker source)."""
         session = self._get_session(session_id)
         frame_index = session.playback.current_frame_index
 
@@ -479,7 +479,7 @@ class EditorAppService:
 
     def get_final_presentation(self, session_id: str) -> FramePresentationViewModel:
         """
-        Build the presentation model for Layer D (the editable final timeline).
+        Build the views model for Layer D (the editable final timeline).
 
         This is the data shown in the 'Tracking results' tab and used for
         export and blur operations.
@@ -765,7 +765,7 @@ class EditorAppService:
 
     def get_frame_presentation(self, session_id: str) -> FramePresentationViewModel:
         """
-        Build the current frame presentation model for UI rendering.
+        Build the current frame views model for UI rendering.
 
         This method is the normal UI read path for the frame table and overlay.
         """

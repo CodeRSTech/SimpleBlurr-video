@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.domain.presentation.view_models import FrameItemViewModel
+from app.domain.views.view_models import FrameItemViewModel
 from app.shared.logging_cfg import get_logger
 
 logger = get_logger("Domain->Detection")

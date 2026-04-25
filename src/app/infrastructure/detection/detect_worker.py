@@ -4,7 +4,7 @@ from PySide6.QtCore import QThread, QMutex, QMutexLocker, Signal
 
 from app.infrastructure.detection.frame_parser import FrameParser
 from app.domain.data.detection import DetectionResult
-from app.infrastructure.video.cv2_vid_reader import OpenCvVideoReader
+from app.infrastructure.video.vid_reader import VideoReader
 from app.shared.logging_cfg import get_logger
 
 logger = get_logger("Infrastructure->Video")
@@ -76,34 +76,38 @@ class DetectionWorker(QThread):
             }
 
     def run(self) -> None:
-        # Replaced _run() with run() which QThread natively executes
         logger.trace("Detection worker thread running for {}", self._video_path)
-        reader = OpenCvVideoReader(self._video_path)
+        reader = VideoReader(self._video_path)
 
         try:
-            frame_count = reader.frame_count
-            logger.info(
-                "Detection worker processing {} frame(s) for {}",
-                frame_count,
-                self._video_path,
-            )
+            # frame_count is still useful for UI progress bars
+            total_frames = reader.frame_count
+            logger.info("Detection worker starting for {}", self._video_path)
 
-            for frame_index in range(frame_count):
-                if self._stop_requested:
-                    logger.info("Detection worker stopped early for {}", self._video_path)
-                    return
+            while not self._stop_requested:
+                try:
+                    # Use the fast, sequential reader!
+                    actual_index, frame = reader.read_next_frame()
+                except ValueError:
+                    # This triggers when we reach the End of File (EOF)
+                    logger.info("Reached end of video stream for {}", self._video_path)
+                    break
 
-                frame = reader.read_frame(frame_index)
+                    # Run your ML model
                 detections = self._parser.detect(frame)
 
                 with QMutexLocker(self._mutex):
-                    self._detections_by_frame_index[frame_index] = detections
+                    self._detections_by_frame_index[actual_index] = detections
 
-                # Emit progress for UI synchronization if needed
-                self.progress_updated.emit(frame_index + 1, frame_count)
+                # Emit progress for UI synchronization
+                # Note: if total_frames was 0 (missing metadata), you might want to handle the UI safely
+                self.progress_updated.emit(actual_index + 1, total_frames if total_frames > 0 else actual_index + 1)
 
-            self._is_complete = True
-            logger.info("Detection worker completed for {}", self._video_path)
+            if not self._stop_requested:
+                self._is_complete = True
+                logger.info("Detection worker completed for {}", self._video_path)
+            else:
+                logger.info("Detection worker stopped early for {}", self._video_path)
 
         except Exception as e:
             logger.opt(exception=True).exception(
