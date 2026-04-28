@@ -1,4 +1,5 @@
 from .controller import AppController
+from .session_manager import SessionManager
 
 """
 Application Layer
@@ -32,4 +33,4 @@ Communication
 - **Must not depend on:** concrete widget behavior or layout details
 """
 
-# __all__ = ["AppController"]
+# __all__ = ["AppController", "SessionManager" ]
