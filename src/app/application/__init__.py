@@ -1,3 +1,5 @@
+from .controller import AppController
+
 """
 Application Layer
 =================
@@ -30,6 +32,4 @@ Communication
 - **Must not depend on:** concrete widget behavior or layout details
 """
 
-# from .editor_app_service import EditorAppService
-
-# __all__ = ["EditorAppService"]
+# __all__ = ["AppController"]
