@@ -85,7 +85,7 @@ class MainWindow(QMainWindow):
     export_all_requested = Signal()
 
     def __init__(self) -> None:
-        logger.info("Initializing UI (MainWindow)")
+        logger.info("Initializing UI (MainWindow)...")
         super().__init__()
 
         self.setWindowTitle("Video App Rewrite")
@@ -143,6 +143,8 @@ class MainWindow(QMainWindow):
         self._initialize_data_panels()
         self._connect_signals()
         self._update_frame_item_action_state()
+
+        logger.info("UI (MainWindow) initialized.")
 
     # --- Public API: Delegations to Right Panel ---
 
@@ -433,6 +435,7 @@ class MainWindow(QMainWindow):
             self.open_videos_requested.emit(paths)
 
     def _connect_signals(self) -> None:
+        logger.debug("Connecting UI signals...")
         # Top/Transport
         for signal, slot in [(self.open_action.triggered, self._choose_video_files),
                              (self.open_button.clicked, self._choose_video_files),
@@ -497,6 +500,8 @@ class MainWindow(QMainWindow):
                              (right_panel.blur_strength_changed, self.blur_strength_changed.emit),
                              (right_panel.export_requested, self.export_requested.emit)]:
             signal.connect(slot)
+
+        logger.debug("UI signals connected.")
 
     def _emit_seek_requested(self) -> None:
         frame_index = self.seek_slider.value()

@@ -8,8 +8,10 @@ logger = get_logger("UI->SessionHandler")
 
 class SessionHandler:
     def __init__(self, window, app_coordinator: AppCoordinator) -> None:
+        logger.debug("Initializing SessionHandler...")
         self._window = window
         self._app_coordinator = app_coordinator
+        logger.debug("SessionHandler initialized.")
 
     def on_open_videos(self, paths: list[str]) -> None:
         try:

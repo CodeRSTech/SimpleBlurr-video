@@ -30,12 +30,13 @@ class AppCoordinator:
     """
 
     def __init__(self) -> None:
+        logger.debug("Initializing AppCoordinator...")
         self._sm = SessionManager()
         self._detection = DetectionService(self._sm)
         self._annotation = AnnotationService(self._sm)
         self._tracking = TrackingService(self._sm)
         self._export = ExportService(self._sm)
-        logger.debug("AppCoordinator initialized")
+        logger.debug("AppCoordinator initialized.")
 
     def get_export_service(self) -> ExportService:
         return self._export

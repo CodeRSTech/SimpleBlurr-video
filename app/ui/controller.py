@@ -62,6 +62,7 @@ class EditorController:
         """
         Connects all necessary signals and slots for the UI components.
         """
+        logger.info("Connecting UI Controller signals...")
         window = self._window
 
         # Connect signals to slots
@@ -80,6 +81,8 @@ class EditorController:
         self.__connect_signals_to_playback_handler(window)
         # Export & Preview/Render
         self.__connect_signals_to_export_handler(window)
+
+        logger.info("UI Controller signals connected.")
 
     def _render_saved_frame(self, session_id: str) -> None:
         # Local references to the UI components and handlers to shorten code
@@ -265,19 +268,19 @@ class EditorController:
     # --------------------------------------------------------------------------------
 
     def on_play_requested(self):
-        logger.debug("Play requested")
+        logger.trace("Play requested")
         self._playback_handler.on_play(self._playback_timer.start)
 
     def on_pause_requested(self):
-        logger.debug("Pause requested")
+        logger.trace("Pause requested")
         self._playback_handler.on_pause(self._stop_playback)
 
     def on_next_frame_requested(self):
-        logger.debug("Next frame requested")
+        logger.trace("Next frame requested")
         self._playback_handler.on_next_frame(self._stop_playback)
 
     def on_previous_frame_requested(self):
-        logger.debug("Previous frame requested")
+        logger.trace("Previous frame requested")
         self._playback_handler.on_previous_frame(self._stop_playback)
 
     def on_seek_requested(self, idx):
@@ -303,12 +306,12 @@ class EditorController:
         self._export_handler.on_blur_strength_changed(val, self._render_saved_frame)
 
     def __connect_signals_to_session_handler(self, window: MainWindow):
-        logger.debug("Connecting signals to session handler")
+        logger.debug("Connecting signals to session handler.")
         window.open_videos_requested.connect(self.on_open_videos_requested)
         window.session_selected.connect(self.on_session_selected)
 
     def __connect_signals_to_detection_handler(self, window: MainWindow):
-        logger.debug("Connecting signals to detection handler")
+        logger.debug("Connecting signals to detection handler.")
         detector = self._detection_handler
         window.model_changed.connect(self.on_model_changed)
         window.detect_current_frame_requested.connect(self.on_detect_current_frame_requested)
@@ -317,7 +320,7 @@ class EditorController:
         window.chosen_labels_changed.connect(self.on_chosen_labels_changed)
 
     def __connect_signals_to_tracker_handler(self, window: MainWindow):
-        logger.debug("Connecting signals to tracker handler")
+        logger.debug("Connecting signals to tracker handler.")
         tracker = self._tracking_handler
         window.start_tracking_requested.connect(self.on_start_tracking_requested)
         window.tracking_strategy_changed.connect(tracker.on_strategy_changed)
@@ -327,7 +330,7 @@ class EditorController:
         window.confidence_decay_changed.connect(tracker.on_confidence_decay_changed)
 
     def __connect_signals_to_annotation_handler(self, window: MainWindow):
-        logger.debug("Connecting signals to annotation handler")
+        logger.debug("Connecting signals to annotation handler.")
         window.add_manual_frame_item_requested.connect(self.on_add_manual_frame_item_requested)
         window.edit_selected_frame_item_requested.connect(self.on_edit_selected_frame_item_requested)
         window.delete_selected_frame_item_requested.connect(self.on_delete_selected_frame_item_requested)
@@ -346,7 +349,7 @@ class EditorController:
         window.delete_prev_occurrences_requested.connect(self.on_delete_prev_occurrences_requested)
 
     def __connect_signals_to_playback_handler(self, window: MainWindow):
-        logger.debug("Connecting signals to playback handler")
+        logger.debug("Connecting signals to playback handler.")
         window.play_requested.connect(self.on_play_requested)
         window.pause_requested.connect(self.on_pause_requested)
         window.next_frame_requested.connect(self.on_next_frame_requested)
@@ -355,7 +358,7 @@ class EditorController:
         self._playback_timer.timeout.connect(self.on_timeout)
 
     def __connect_signals_to_export_handler(self, window: MainWindow):
-        logger.debug("Connecting signals to export handler")
+        logger.debug("Connecting signals to export handler.")
         exporter = self._export_handler
         window.export_requested.connect(exporter.on_export)
         window.export_all_requested.connect(exporter.on_export_all)
@@ -364,7 +367,7 @@ class EditorController:
         window.blur_strength_changed.connect(self.on_blur_strength_changed)
 
     def __connect_model_worker_and_thread(self, model_load_thread: QThread, model_load_worker: ModelLoadWorker):
-        logger.debug("Connecting model worker and thread")
+        logger.debug("Connecting model worker and thread.")
 
         model_load_thread.started.connect(model_load_worker.run)
         model_load_thread.finished.connect(self._cleanup_model_load)

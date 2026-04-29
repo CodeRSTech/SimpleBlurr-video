@@ -20,9 +20,10 @@ class SessionManager:
     """
 
     def __init__(self) -> None:
+        logger.debug("Initializing SessionManager...")
         self._sessions: dict[str, Session] = {}
         self._active_session_id: str | None = None
-        logger.debug("SessionManager initialized")
+        logger.debug("SessionManager initialized.")
 
     # -------------------------------------------------------------------------
     # Session lifecycle
