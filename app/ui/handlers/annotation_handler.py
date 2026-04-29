@@ -7,7 +7,7 @@ from PySide6.QtGui import QKeyEvent
 
 from app.application.coordinator import AppCoordinator
 from app.shared.logging_cfg import get_logger
-from app.ui.qt.annotation_dlg import ManualAnnotationDialog
+from app.ui.qt.annotation_dlg import EditAnnotationDialog, LabelDialog
 
 logger = get_logger("UI->AnnotationHandler")
 
@@ -19,29 +19,50 @@ class AnnotationHandler:
         self._last_move_key: int | None = None
         self._last_move_ts: float = 0.0
         self._move_repeat_count: int = 0
+        self._pending_render_fn = None  # set while waiting for a bbox draw
 
     def on_add_manual(self, render_fn) -> None:
         session_id = self._window.get_selected_session_id()
         if session_id is None:
             return
 
-        dialog = ManualAnnotationDialog(self._window)
-        if dialog.exec() != ManualAnnotationDialog.DialogCode.Accepted:
+        # Phase 1: prompt for label, then enable drawing
+        dialog = LabelDialog(self._window)
+        if dialog.exec() != LabelDialog.DialogCode.Accepted:
             return
 
-        label, bbox_xyxy = dialog.get_annotation_data()
+        label = dialog.get_label()
         if not label:
             self._window.show_error("Add Failed", "Label cannot be empty.")
             return
 
-        x1, y1, x2, y2 = bbox_xyxy
-        if x2 <= x1 or y2 <= y1:
-            self._window.show_error("Add Failed", "BBox must satisfy x2>x1 and y2>y1.")
-            return
+        # Phase 2: activate drawing mode on the preview widget
+        self._pending_render_fn = render_fn
+        preview = self._window.preview_widget
+        preview.set_drawing_enabled(True)
+        # Connect one-shot: fires when user finishes drawing
+        preview.bbox_drawn.connect(
+            lambda x1, y1, x2, y2: self._on_bbox_drawn(session_id, label, x1, y1, x2, y2)
+        )
+        self._window.set_status_text("Draw a bounding box on the preview. Click and drag.")
 
+    def _on_bbox_drawn(self, session_id: str, label: str, x1: int, y1: int, x2: int, y2: int) -> None:
+        preview = self._window.preview_widget
+        # Disconnect immediately — one-shot behaviour
+        try:
+            preview.bbox_drawn.disconnect()
+        except RuntimeError:
+            pass
+
+        render_fn = self._pending_render_fn
+        self._pending_render_fn = None
+
+        bbox_xyxy = (x1, y1, x2, y2)
         try:
             self._app_coordinator.add_manual_frame_item(session_id, label, bbox_xyxy)
-            render_fn(session_id)
+            if render_fn:
+                render_fn(session_id)
+            self._window.set_status_text("Annotation added.")
         except Exception as exc:
             self._window.show_error("Add Failed", str(exc))
 
@@ -66,10 +87,10 @@ class AnnotationHandler:
             self._window.show_error("Edit Failed", "Item not found.")
             return
 
-        dialog = ManualAnnotationDialog(
-            self._window, title="Edit Annotation", initial_label=item.label, initial_bbox_xyxy=item.bbox_xyxy
+        dialog = EditAnnotationDialog(
+            self._window, initial_label=item.label, initial_bbox_xyxy=item.bbox_xyxy
         )
-        if dialog.exec() != ManualAnnotationDialog.DialogCode.Accepted:
+        if dialog.exec() != EditAnnotationDialog.DialogCode.Accepted:
             return
 
         label, bbox_xyxy = dialog.get_annotation_data()
@@ -78,10 +99,7 @@ class AnnotationHandler:
             return
 
         try:
-            # Layer D edits are implemented as 'move/delete/dup' for now, but if direct edit is needed,
-            # we apply it to the respective layer. For now, Layer B is fully editable.
             if tab == 1:
-                # To keep it simple, if they edit a track, we handle it as a manual box overwrite
                 self._window.show_error("Edit Info", "Editing Layer D directly is limited. Edit Layer B and re-track.")
                 return
 
