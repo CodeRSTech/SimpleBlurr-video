@@ -5,7 +5,7 @@ from PySide6.QtWidgets import QApplication
 
 from app.application.coordinator import AppCoordinator
 from app.shared import draw_frame_overlays, bgr_frame_to_qimage, get_logger
-from app.ui.qt.main_win import MainWindow
+from app.ui.qt import MainWindow
 from app.ui.handlers import (
     AnnotationHandler,
     DetectionHandler,
@@ -343,6 +343,7 @@ class EditorController:
         window.reset_all_review_requested.connect(self.on_reset_all_review_requested)
 
         window.reset_tracker_frame_requested.connect(self.on_reset_tracker_frame_requested)
+
         window.reset_all_trackers_requested.connect(self.on_reset_all_trackers_requested)
 
         window.delete_next_occurrences_requested.connect(self.on_delete_next_occurrences_requested)

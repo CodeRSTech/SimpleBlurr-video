@@ -5,7 +5,7 @@ from enum import Enum, auto
 
 from PySide6.QtCore import Qt, Signal, QRect, QPoint, QSize
 from PySide6.QtGui import (
-    QImage, QPixmap, QPainter, QPen, QBrush, QColor, QCursor, QPaintEvent,
+    QImage, QPainter, QPen, QBrush, QColor, QCursor, QPaintEvent,
     QMouseEvent,
 )
 from PySide6.QtWidgets import QSizePolicy, QWidget
@@ -30,7 +30,7 @@ class PreviewWidget(QWidget):
         1. Call ``set_drawing_enabled(True)`` to enter drawing mode.
         2. User draws a ``rect`` by clicking and dragging on the image.
         3. Handles appear; user can refine by dragging corners/edges or move the whole box.
-        4. On double-click (or external call to ``confirm_bbox()``), ``bbox_drawn`` is emitted
+        4. On double-click (or external call to ``confirm_bbox()`` ), ``bbox_drawn`` is emitted
            with image-space (x1, y1, x2, y2) coordinates and drawing mode is exited.
         5. Press Escape to cancel without emitting.
     """
@@ -53,6 +53,9 @@ class PreviewWidget(QWidget):
         self._placeholder_text: str = ""
 
     # 3. Public properties (None)
+    @property
+    def _drawing_disabled(self) -> bool:
+        return not self._drawing_enabled
 
     # 4. Public methods
     # --- Public API ---
@@ -65,6 +68,38 @@ class PreviewWidget(QWidget):
         Enable or disable drawing of bounding boxes.
 
         When disabled, the widget will not respond to mouse events for drawing.
+
+        This is the very first step in the drawing workflow.
+
+        ``set_drawing_enabled(True)``
+            → ``_state`` reset, ``cursor = crosshair``, ``update()``
+
+        ``mousePressEvent``: *[user presses the mouse button]*
+            → ``_clamp(pos)``
+                → ``drag_origin`` set,
+                ``rect`` = zero-size ``QRect``,
+                ``drag_mode`` = ``DRAW``
+
+        ``mouseMoveEvent`` *[user moves mouse — fires many times]*
+            → ``state.rect`` = ``QRect(origin,clamped_pos).normalized()``
+            → ``self.update()``
+                → ``paintEvent``
+                    → ``drawImage(_pixmap_rect, _image)``
+                    → ``_paint_overlay`` → ``drawRect``, ``drawEllipse`` ×8
+
+        ``mouseReleaseEvent`` *[user releases mouse]*
+            → ``size`` check → ``drag_mode = NONE``
+
+        *[user drags a handle — repeat move cycle above with different drag_mode]*
+
+        ``mouseDoubleClickEvent`` / ``keyPressEvent`` *[user double-clicks or presses ``Enter``]*
+            → ``_emit_and_exit()``
+                → ``_widget_rect_to_image_space`` → image-space coords
+                → ``set_drawing_enabled(False)``
+                → ``bbox_drawn.emit(x1, y1, x2, y2)``
+                    → ``AnnotationHandler._on_bbox_drawn``
+                        → ``add_manual_frame_item(session_id, label, bbox_xyxy)``
+                        → ``render_fn(session_id)``
         """
         self._drawing_enabled = enabled
         self._state = _BBoxState() # reset bbox state (rect becomes a null QRect, drag mode is NONE).
@@ -94,23 +129,27 @@ class PreviewWidget(QWidget):
             self.set_drawing_enabled(False)
             return
         if self._drawing_enabled and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            if not self._state.rect.isNull():
+            if self._state.has_valid_rect:
                 self._emit_and_exit()
             return
         super().keyPressEvent(event)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
-        if not self._drawing_enabled or event.button() != Qt.MouseButton.LeftButton:
+        if self._drawing_disabled or event.button() != Qt.MouseButton.LeftButton:
             return
-        if not self._state.rect.isNull():
+        if self._state.has_valid_rect:
             self._emit_and_exit()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """
         Handles mouse move events for drawing and interaction with the preview widget.
         Updates the drag mode and position based on the mouse movement.
+
+        In ``mouseMoveEvent``,
+        when ``drag_mode`` is a handle,
+        ``_apply_handle_drag`` is called.
         """
-        if not self._drawing_enabled:
+        if self._drawing_disabled:
             return
 
         # Get mouse position in widget coordinates
@@ -120,7 +159,7 @@ class PreviewWidget(QWidget):
         # If drag mode is NONE and rect exists
         if state.drag_mode == _DragMode.NONE:
             # Hover: update cursor based on what's under the pointer
-            if not state.rect.isNull():
+            if state.has_valid_rect:
                 hit = self._hit_test_handle(pos)
                 # If a handle is hit, change cursor to the appropriate one
                 if hit != _DragMode.NONE:
@@ -168,17 +207,43 @@ class PreviewWidget(QWidget):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """
         Handles mouse press events for drawing and interaction with the preview widget.
+
+        Runs only if drawing is enabled and the left mouse button is pressed.
+
+        Working steps:
+            1. Get the mouse position ``pos`` by converting the ``event`` position to ``QPoint``.
+
+            2. If the current `` state `` has a valid rectangle.
+                2.1. Check handle:
+                    2.1.1. If the handle is **not** ``NONE``,
+                    2.1.2. Update state's ``drag_mode`` to that handle,
+                    ``drag_origin`` to ``pos``, and
+                    ``rect_at_drag_start`` to ``state.rect``.
+                    2.1.3. Exit the function.
+
+                    2.1.4. If the handle is ``NONE`` and,
+                    current state's ``rect`` contains ``pos``,
+                    2.1.5. Update state's ``drag_mode`` to ``MOVE``,
+                    ``drag_origin`` to ``pos``, and
+                    ``rect_at_drag_start`` to ``state.rect``.
+                    2.1.6. Exit the function.
+            3. If the current `` state `` does NOT have a valid rectangle.
+                3.1. Start a fresh draw by setting
+                ``state.rect`` to the current ``pos`` and
+                ``state.drag_mode`` to ``DRAW``.
+                3.2. Exit the function.
         """
-        if not self._drawing_enabled or event.button() != Qt.MouseButton.LeftButton:
+        if self._drawing_disabled or event.button() != Qt.MouseButton.LeftButton:
+            # TODO: update this to choose bbox coinciding with the mouse cursor
             return
 
         pos = event.position().toPoint()
         state = self._state
 
-        if not state.rect.isNull():
+        if state.has_valid_rect:
             # Check handles first, then interior move, then new draw
             hit = self._hit_test_handle(pos)
-            if hit != _DragMode.NONE:
+            if hit != _DragMode.NONE:   # if a handle is hit, start dragging it from `pos`
                 state.drag_mode = hit
                 state.drag_origin = pos
                 state.rect_at_drag_start = QRect(state.rect)
@@ -197,7 +262,7 @@ class PreviewWidget(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if not self._drawing_enabled or event.button() != Qt.MouseButton.LeftButton:
+        if self._drawing_disabled or event.button() != Qt.MouseButton.LeftButton:
             return
         state = self._state
         if state.drag_mode == _DragMode.DRAW:
@@ -205,6 +270,11 @@ class PreviewWidget(QWidget):
                 # Too small — cancel
                 state.rect = QRect()
                 self.update()
+
+        # After this,
+        # `drag_mode` is `NONE` but `state.rect` is non-null.
+        # The handles are still painted.
+        # The widget is now in its editing phase
         state.drag_mode = _DragMode.NONE
 
     def paintEvent(self, event: QPaintEvent) -> None:
@@ -239,7 +309,7 @@ class PreviewWidget(QWidget):
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, text)
 
         # 3. Overlay — only if drawing mode is active AND a rect exists
-        if self._drawing_enabled and not self._state.rect.isNull():
+        if self._drawing_enabled and self._state.has_valid_rect:
             self._paint_overlay(painter)
 
         painter.end()
@@ -251,6 +321,12 @@ class PreviewWidget(QWidget):
     # 5. Protected methods
     # --- Protected Methods: Actions ---
     def _emit_and_exit(self) -> None:
+        """
+        Emit the bbox_drawn signal with the final bounding box coordinates,
+        and exit drawing mode.
+
+        Called when the user double-clicks or presses Enter.
+        """
         x1, y1, x2, y2 = self._widget_rect_to_image_space(self._state.rect)
         self.set_drawing_enabled(False)
         self.bbox_drawn.emit(x1, y1, x2, y2)
@@ -298,7 +374,14 @@ class PreviewWidget(QWidget):
 
     # --- Protected Methods: Geometry Helpers ---
     def _apply_handle_drag(self, base: QRect, mode: _DragMode, delta: QPoint) -> QRect:
-        """Return a new normalised rect after moving one handle by `delta`."""
+        """
+        Return a new normalized ``rect`` after moving one handle by ``delta``.
+
+        The ``delta`` is always computed against ``rect_at_drag_start`` (the snapshot taken at press),
+        **not** the current ``rect``.
+        This avoids **drift accumulation** —
+        where small rounding errors compound across hundreds of move events.
+        """
         x1, y1, x2, y2 = base.left(), base.top(), base.right(), base.bottom()
         dx, dy = delta.x(), delta.y()
         pr = self._pixmap_rect
@@ -310,7 +393,7 @@ class PreviewWidget(QWidget):
             return max(pr.top(), min(v, pr.bottom()))
 
         if mode == _DragMode.TOP_LEFT:
-            x1, y1 = clamp_x(x1 + dx), clamp_y(y1 + dy)
+            x1, y1 = clamp_x(x1 + dx), clamp_y(y1 + dy) # Moves both X and Y axes
         elif mode == _DragMode.TOP_RIGHT:
             x2, y1 = clamp_x(x2 + dx), clamp_y(y1 + dy)
         elif mode == _DragMode.BOT_LEFT:
@@ -318,12 +401,12 @@ class PreviewWidget(QWidget):
         elif mode == _DragMode.BOT_RIGHT:
             x2, y2 = clamp_x(x2 + dx), clamp_y(y2 + dy)
         elif mode == _DragMode.TOP:
-            y1 = clamp_y(y1 + dy)
+            y1 = clamp_y(y1 + dy)   # Moves only Y
         elif mode == _DragMode.BOTTOM:
             y2 = clamp_y(y2 + dy)
         elif mode == _DragMode.LEFT:
             x1 = clamp_x(x1 + dx)
-        elif mode == _DragMode.RIGHT:
+        elif mode == _DragMode.RIGHT: # Moves only X
             x2 = clamp_x(x2 + dx)
 
         return QRect(QPoint(x1, y1), QPoint(x2, y2)).normalized()
@@ -341,7 +424,7 @@ class PreviewWidget(QWidget):
         )
 
     def _clamp_rect(self, rect: QRect) -> QRect:
-        """Translate rect so it stays fully inside _pixmap_rect."""
+        """Translate ``rect`` so it stays fully inside ``_pixmap_rect``."""
         pr = self._pixmap_rect
         r = rect.normalized()
         dx = dy = 0
@@ -354,6 +437,10 @@ class PreviewWidget(QWidget):
     def _hit_test_handle(self, pos: QPoint) -> _DragMode:
         """
         Determines the drag mode based on the position of the mouse cursor relative to the preview widget's handles.
+
+        ``_hit_test_handle`` checks each of the 8 handle points using ``manhattanLength``
+        (faster than Euclidean distance, fine for small areas):
+
         Returns the corresponding drag mode or None if no handle is hit.
         """
         rect = self._state.rect
@@ -392,19 +479,34 @@ class PreviewWidget(QWidget):
         self._pixmap_rect = QRect(ox, oy, pw, ph)
 
     def _widget_rect_to_image_space(self, rect: QRect) -> tuple[int, int, int, int]:
+        """
+        Convert a widget-space rect to image-space coordinates.
+
+        This is a **critical step** because,
+        the ``rect`` is in **widget pixels** and,
+        the application needs **image pixels**.
+
+        Returns (x1, y1, x2, y2) in image-space coordinates.
+        """
         r = self._pixmap_rect
         if r.width() == 0 or r.height() == 0 or self._image is None:
             return 0, 0, 0, 0
         sx = self._image.width() / r.width()
         sy = self._image.height() / r.height()
+
+        # Why subtract `r.left()` and `r.top()`` first?
+        # Because `_pixmap_rect` is offset from the widget's top-left by the letterbox margins.
+        # If you don't subtract the offset before scaling,
+        # every coordinate would be wrong by a margin-sized amount.
         x1 = int((rect.left() - r.left()) * sx)
         y1 = int((rect.top() - r.top()) * sy)
         x2 = int((rect.right() - r.left()) * sx)
         y2 = int((rect.bottom() - r.top()) * sy)
         iw, ih = self._image.width(), self._image.height()
-        return max(0, x1), max(0, y1), min(iw, x2), min(ih, y2)
 
-    # 6. Private methods (None)
+        # The signal `bbox_drawn` fires with these image-space coordinates.
+        # `AnnotationHandler._on_bbox_drawn` receives them and calls `add_manual_frame_item`.
+        return max(0, x1), max(0, y1), min(iw, x2), min(ih, y2)
 
     # 7. Static methods
     @staticmethod
@@ -423,7 +525,24 @@ class PreviewWidget(QWidget):
 # --- Internal Helpers ---
 
 class _DragMode(Enum):
-    """Enum for the different drag modes."""
+    """Enum for the different drag modes.
+
+    Types of drag modes:
+
+    - ``NONE``: No drag in progress (rect may still be present)
+    - ``DRAW``: Creating a new rect from scratch.
+    - ``MOVE``: Dragging the whole rect.
+
+    - ``TOP_LEFT``: Top-left corner.
+    - ``TOP_RIGHT``: Top-right corner.
+    - ``BOT_LEFT``: Bottom-left corner.
+    - ``BOT_RIGHT``: Bottom-right corner.
+
+    - ``TOP``: Top-edge midpoint.
+    - ``BOTTOM``: Bottom-edge midpoint.
+    - ``LEFT``: Left-edge midpoint.
+    - ``RIGHT``: Right-edge midpoint.
+    """
 
     NONE = auto()  # no drag in progress (bounding box may still be visible)
     DRAW = auto()  # creating a new rect from scratch
@@ -460,3 +579,7 @@ class _BBoxState:
     drag_mode: _DragMode = _DragMode.NONE  # current drag mode, defaults to NONE (no drag in progress).
     drag_origin: QPoint = field(default_factory=QPoint) # start point of drag operation.
     rect_at_drag_start: QRect = field(default_factory=QRect) # rect at drag start, used for handle-based resizing.
+
+    @property
+    def has_valid_rect(self) -> bool:
+        return not self.rect.isNull()
