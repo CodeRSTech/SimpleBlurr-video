@@ -39,10 +39,11 @@ class DetectionService:
             for n in get_available_detection_model_names()
         ]
 
-    def set_detection_model(self, session_id: str, model_name: str) -> None:
+    def set_detection_model(self, session_id: str, model_name: str, keep_manual: bool = False) -> None:
         session = self._sm.get_session(session_id)
         session.settings.detection_model_name = model_name
-        logger.info("Setting detection model '{}' for session '{}'", model_name, session_id)
+        logger.info("Setting detection model '{}' for session '{}' (keep_manual={})",
+                    model_name, session_id, keep_manual)
 
         if session.has_detection_worker():
             logger.warning("Stopping existing detection worker for session '{}'", session_id)
@@ -51,8 +52,8 @@ class DetectionService:
 
         if model_name == "None":
             session.parser = None
-            self._clear_all_layers(session)
-            logger.info("Detection disabled for session {}. All layers cleared.", session_id)
+            self._clear_all_layers(session, keep_manual)
+            logger.info("Detection disabled for session {}. Layers cleared.", session_id)
             return
 
         if not session.has_parser():
@@ -60,8 +61,8 @@ class DetectionService:
         else:
             session.parser.set_model(model_name)
 
-        self._clear_all_layers(session)
-        logger.info("Detection model set for session {}. All layers cleared.", session_id)
+        self._clear_all_layers(session, keep_manual)
+        logger.info("Detection model set for session {}. Layers cleared.", session_id)
 
     def detect_current_frame(self, session_id: str) -> None:
         session = self._sm.get_session(session_id)
@@ -178,8 +179,32 @@ class DetectionService:
         return [ d.to_frame_item_view_model() for d in detections ]
 
     @staticmethod
-    def _clear_all_layers(session: Session) -> None:
+    def _clear_all_layers(session: Session, keep_manual: bool = False) -> None:
+        """
+        Clears the detection and tracking layers.
+        If keep_manual is True, preserves items in Layer B and D where source == "Manual".
+        """
+        # Layer A (Raw detections) and Layer C (Raw tracks) are ALWAYS wiped
+        # because they are strictly machine-generated.
         session.raw_frame_items_by_frame_index.clear()
-        session.review_frame_items_by_frame_index.clear()
         session.tracked_frame_items_by_frame_index.clear()
-        session.final_frame_items_by_frame_index.clear()
+
+        if keep_manual:
+            # Filter Layer B (Review)
+            for frame_idx, items in list(session.review_frame_items_by_frame_index.items()):
+                manual_items = [i for i in items if i.source == "Manual"]
+                if manual_items:
+                    session.review_frame_items_by_frame_index[frame_idx] = manual_items
+                else:
+                    del session.review_frame_items_by_frame_index[frame_idx]
+
+            # Filter Layer D (Final Timeline)
+            for frame_idx, items in list(session.final_frame_items_by_frame_index.items()):
+                manual_items = [i for i in items if i.source == "Manual"]
+                if manual_items:
+                    session.final_frame_items_by_frame_index[frame_idx] = manual_items
+                else:
+                    del session.final_frame_items_by_frame_index[frame_idx]
+        else:
+            session.review_frame_items_by_frame_index.clear()
+            session.final_frame_items_by_frame_index.clear()

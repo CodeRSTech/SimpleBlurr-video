@@ -2,6 +2,8 @@ from PySide6.QtCore import Qt, Signal, QSignalBlocker
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QButtonGroup,
+    QRadioButton,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
@@ -19,7 +21,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QToolBar,
     QVBoxLayout,
-    QWidget, QDoubleSpinBox, QApplication,
+    QWidget,
 )
 
 from app.domain.views import (
@@ -31,6 +33,8 @@ from app.domain.views import (
 from app.shared.logging_cfg import get_logger
 from app.ui.qt.prev_widget import PreviewWidget
 from app.ui.qt.right_panel import RightControlPanel
+from app.ui.qt.preview.container import PreviewContainer
+from app.ui.state.preview_state import ToolMode
 
 logger = get_logger("UI->MainWindow")
 
@@ -38,6 +42,8 @@ logger = get_logger("UI->MainWindow")
 class MainWindow(QMainWindow):
     # --- Signals: Top row ---
     open_videos_requested = Signal(list)
+    tool_mode_changed = Signal(ToolMode)
+    export_all_requested = Signal()
 
     # --- Signals: Transport controls ---
     pause_requested = Signal()
@@ -82,7 +88,6 @@ class MainWindow(QMainWindow):
     blur_toggled = Signal(bool)
     blur_strength_changed = Signal(float)
     export_requested = Signal()
-    export_all_requested = Signal()
 
     def __init__(self) -> None:
         logger.info("Initializing UI (MainWindow)...")
@@ -96,6 +101,18 @@ class MainWindow(QMainWindow):
         self.open_button = QPushButton("Open Video(s)")
         self.export_all_action = QAction("Export All...", self)
         self.export_all_button = QPushButton("Export All")
+
+        self.add_mode_btn = QRadioButton("Add Box")
+        self.edit_mode_btn = QRadioButton("Edit / Select")
+        self.delete_mode_btn = QRadioButton("Delete Box")
+        self.edit_mode_btn.setChecked(True)  # Default state
+
+        self.tool_group = QButtonGroup(self)
+        self.tool_group.addButton(self.add_mode_btn, ToolMode.ADD.value)
+        self.tool_group.addButton(self.edit_mode_btn, ToolMode.EDIT.value)
+        self.tool_group.addButton(self.delete_mode_btn, ToolMode.DELETE.value)
+
+
 
         # --- UI Elements: Transport controls ---
         self.play_button = QPushButton("Play")
@@ -120,7 +137,9 @@ class MainWindow(QMainWindow):
         self.delete_prev_occurrences_button = QPushButton("Delete Prev Occurrences")
 
         # --- UI Elements: Frame preview ---
-        self.preview_widget = PreviewWidget()
+        # self.preview_widget = PreviewWidget()
+        # REPLACED PreviewWidget with Container
+        self.preview_container = PreviewContainer()
 
         # --- UI Elements: Opened files (session) ---
         self.session_list = QListWidget()
@@ -299,6 +318,10 @@ class MainWindow(QMainWindow):
     def set_status_text(self, text: str) -> None:
         self.info_label.setText(text)
 
+    def set_tool_mode_edit(self):
+        """Called automatically after a box is drawn."""
+        self.edit_mode_btn.setChecked(True)
+
     def show_error(self, title: str, message: str) -> None:
         QMessageBox.critical(self, title, message)
 
@@ -311,8 +334,12 @@ class MainWindow(QMainWindow):
 
     def _build_toolbar(self) -> None:
         toolbar = QToolBar("Main")
-        toolbar.setMovable(False)
         toolbar.addAction(self.open_action)
+        toolbar.addSeparator()
+        # Add Tool Modes to top toolbar
+        toolbar.addWidget(self.add_mode_btn)
+        toolbar.addWidget(self.edit_mode_btn)
+        toolbar.addWidget(self.delete_mode_btn)
         toolbar.addSeparator()
         toolbar.addAction(self.export_all_action)
         self.addToolBar(toolbar)
@@ -336,7 +363,7 @@ class MainWindow(QMainWindow):
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
 
-        left_layout.addWidget(self.preview_widget, 5)
+        left_layout.addWidget(self.preview_container, 5)
         left_layout.addLayout(self._build_transport_controls())
         left_layout.addWidget(self._build_bottom_data_panel(), 3)
 
@@ -447,8 +474,10 @@ class MainWindow(QMainWindow):
                              (self.next_button.clicked, self.next_frame_requested.emit),
                              (self.seek_slider.sliderReleased, self._emit_seek_requested),
                              (self.session_list.itemSelectionChanged, self._emit_selected_session),
+                             (self.tool_group.idClicked, lambda t_id: self.tool_mode_changed.emit(ToolMode(t_id))),
                              ]:
             signal.connect(slot)
+
 
         # Action Row 1
         for signal, slot in [(self.add_manual_button.clicked, self.add_manual_frame_item_requested.emit),
@@ -472,7 +501,7 @@ class MainWindow(QMainWindow):
         # Tabs/Tables
         detection_data_table = self.frame_detection_data_table
         tracker_data_table = self.frame_tracker_data_table
-        for signal, slot in [(self.data_tab.currentChanged, self._update_frame_item_action_state),
+        for signal, slot in [(self.data_tab.currentChanged, self._on_tab_changed),
                              (detection_data_table.itemSelectionChanged, self._update_frame_item_action_state),
                              (tracker_data_table.itemSelectionChanged, self._update_frame_item_action_state),
                              (detection_data_table.cellClicked, self._update_frame_item_action_state),
@@ -514,6 +543,10 @@ class MainWindow(QMainWindow):
         session_id = item.data(Qt.ItemDataRole.UserRole)
         if isinstance(session_id, str):
             self.session_selected.emit(session_id)
+
+    def _on_tab_changed(self, index: int):
+        self._update_frame_item_action_state()
+        self.preview_container.set_tracker_actions_enabled(index == 1)
 
     def _update_frame_item_action_state(self) -> None:
         selected_count = len(self.get_selected_frame_item_keys())

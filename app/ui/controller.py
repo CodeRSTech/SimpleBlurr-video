@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from PySide6.QtCore import QTimer, QThread
 from PySide6.QtWidgets import QApplication
 
@@ -29,7 +30,7 @@ class EditorController:
             self,
             app: QApplication,
             window: MainWindow,
-            app_coordinator: AppCoordinator,) -> None:
+            app_coordinator: AppCoordinator, ) -> None:
         self._app = app
         self._window = window
         self._app_coordinator = app_coordinator
@@ -69,6 +70,7 @@ class EditorController:
         # ========================
         # App Lifecycle
         self._app.aboutToQuit.connect(self._on_about_to_quit)
+        self.__connect_preview_container_signals(window)
         # Session
         self.__connect_signals_to_session_handler(window)
         # Detection
@@ -81,6 +83,9 @@ class EditorController:
         self.__connect_signals_to_playback_handler(window)
         # Export & Preview/Render
         self.__connect_signals_to_export_handler(window)
+
+        # Connect the new Click-to-Edit signal
+        self._window.preview_container.bbox_edited.connect(self._on_preview_bbox_edited)
 
         logger.info("UI Controller signals connected.")
 
@@ -103,11 +108,8 @@ class EditorController:
         window.set_frame_label_text(self._app_coordinator.get_session_frame_label(session_id))
 
     def _render_frame(self, session_id: str, frame) -> None:
-        # Local references to the UI components and handlers to shorten code
         window = self._window
         app_coordinator = self._app_coordinator
-
-        # Tab index is 0 for frame data, 1 for final frame data
         tab_idx = window.get_active_tab_index()
 
         detections_data = app_coordinator.get_detections_presentation(session_id)
@@ -119,10 +121,47 @@ class EditorController:
         if app_coordinator.draw_boxes_enabled(session_id):
             items_to_draw = display_data.frame_data_items
 
+        # Pass active boxes to the new container
+        active_bboxes = {}
+        for item in display_data.frame_data_items:
+            match = re.match(r"\((-?\d+),(-?\d+)\)-\((-?\d+),(-?\d+)\)", item.bbox_text)
+            if match:
+                active_bboxes[item.item_key] = tuple(map(int, match.groups()))
+
+        self._window.preview_container.set_active_bboxes(active_bboxes)
+
         frame_out = draw_frame_overlays(frame, items_to_draw)
-        window.preview_widget.set_image(bgr_frame_to_qimage(frame_out))
-        window.set_frame_data_items(detections_data.frame_data_items)
-        window.set_tracker_data_items(trackers_data.frame_data_items)
+        self._window.preview_container.set_image(bgr_frame_to_qimage(frame_out))
+        self._window.set_frame_data_items(detections_data.frame_data_items)
+        self._window.set_tracker_data_items(trackers_data.frame_data_items)
+
+    # FIXME: Marked for removal.
+    """    
+    def _on_preview_bbox_edited(self, item_key: str, x1: int, y1: int, x2: int, y2: int) -> None:
+        session_id = self._window.get_selected_session_id()
+        if not session_id:
+            return
+
+        tab_idx = self._window.get_active_tab_index()
+
+        # Protect backend state: Direct Layer D edits are locked by architectural contract
+        if tab_idx == 1:
+            self._window.show_error("Edit Info", "Editing Layer D directly is limited. Edit Layer B and re-track.")
+            self._window.preview_container.cancel_edit()
+            self._render_saved_frame(session_id)
+            return
+
+        item = self._app_coordinator.get_review_frame_item(session_id, item_key)
+        if item:
+            try:
+                self._app_coordinator.update_manual_frame_item(
+                    session_id, item_key, item.label, (x1, y1, x2, y2)
+                )
+                self._render_saved_frame(session_id)
+            except Exception as exc:
+                logger.error("Failed to update bbox: {}", exc)
+                self._window.show_error("Edit Failed", str(exc))
+    """
 
     def _stop_playback(self) -> None:
         self._playback_timer.stop()
@@ -131,7 +170,7 @@ class EditorController:
         if active:
             self._window.set_status_text(self._app_coordinator.get_active_status_text())
 
-    def _start_model_load(self, session_id: str, model_name: str) -> None:
+    def _start_model_load(self, session_id: str, model_name: str, keep_manual: bool = True) -> None:
         try:
             if self._model_load_thread.isRunning():
                 self._window.show_error("Model Change Failed", "A model is already loading.")
@@ -156,7 +195,6 @@ class EditorController:
 
         model_load_thread.start()
 
-
     def _on_model_load_finished(self, session_id: str, model_name: str) -> None:
         logger.debug("Model load finished for session {} with model {}", session_id, model_name)
         self._window.set_status_text(self._app_coordinator.get_active_status_text())
@@ -179,7 +217,6 @@ class EditorController:
             self._model_load_thread.deleteLater()
             self._model_load_thread = None
 
-
     def _on_about_to_quit(self) -> None:
         self._stop_playback()
         self._app_coordinator.close()
@@ -189,6 +226,54 @@ class EditorController:
                 self._model_load_thread.wait()
         except AttributeError:
             logger.debug("Model load thread was never initialized, Quitting anyway.")
+
+    # --- Container Handlers ---
+
+    def _on_preview_bbox_drawn(self, x1, y1, x2, y2):
+        sid = self._window.get_selected_session_id()
+        if sid:
+            self._annotation_handler.handle_new_drawn_box(sid, x1, y1, x2, y2, self._render_saved_frame)
+
+    def _on_preview_bbox_edited(self, item_key, x1, y1, x2, y2):
+        sid = self._window.get_selected_session_id()
+        if sid:
+            self._annotation_handler.handle_existing_box_edit(sid, item_key, self._render_saved_frame,
+                                                              (x1, y1, x2, y2))
+
+    def _on_preview_bbox_deleted(self, item_key):
+        sid = self._window.get_selected_session_id()
+        if sid:
+            tab = self._window.get_active_tab_index()
+            if tab == 1:
+                self._app_coordinator.delete_final_frame_items(sid, [item_key])
+            else:
+                self._app_coordinator.delete_frame_items(sid, [item_key])
+            self._render_saved_frame(sid)
+
+    def _on_preview_context_action(self, action: str, item_key: str):
+        sid = self._window.get_selected_session_id()
+        if not sid: return
+
+        # Route the context menu actions directly to the existing backend logic!
+        if action == "duplicate_next":
+            if self._window.get_active_tab_index() == 1:
+                self._app_coordinator.duplicate_final_frame_items_to_next_frame(sid, [item_key])
+            else:
+                self._app_coordinator.duplicate_frame_items_to_next_frame(sid, [item_key])
+        elif action == "duplicate_prev":
+            if self._window.get_active_tab_index() == 1:
+                self._app_coordinator.duplicate_final_frame_items_to_prev_frame(sid, [item_key])
+            else:
+                self._app_coordinator.duplicate_frame_items_to_prev_frame(sid, [item_key])
+        elif action == "delete_next":
+            # Extract underlying item_id from item_key (e.g. "track:123" -> "123")
+            item_id = self._app_coordinator.get_final_frame_item(sid, item_key).item_id
+            self._app_coordinator.delete_next_occurrences(sid, item_id)
+        elif action == "delete_prev":
+            item_id = self._app_coordinator.get_final_frame_item(sid, item_key).item_id
+            self._app_coordinator.delete_prev_occurrences(sid, item_id)
+
+        self._render_saved_frame(sid)
 
     def on_open_videos_requested(self, paths):
         logger.debug(f"Opening videos: {paths}")
@@ -304,6 +389,15 @@ class EditorController:
     def on_blur_strength_changed(self, val):
         logger.debug(f"Blur strength changed: {val}")
         self._export_handler.on_blur_strength_changed(val, self._render_saved_frame)
+
+    def __connect_preview_container_signals(self, window: MainWindow):
+        window.tool_mode_changed.connect(window.preview_container.set_tool_mode)
+
+        container = window.preview_container
+        container.bbox_drawn.connect(self._on_preview_bbox_drawn)
+        container.bbox_edited.connect(self._on_preview_bbox_edited)
+        container.bbox_deleted.connect(self._on_preview_bbox_deleted)
+        container.context_action_triggered.connect(self._on_preview_context_action)
 
     def __connect_signals_to_session_handler(self, window: MainWindow):
         logger.debug("Connecting signals to session handler.")

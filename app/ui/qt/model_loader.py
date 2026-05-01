@@ -15,22 +15,17 @@ class ModelLoadWorker(QThread):
     finished = Signal(str, str)        # session_id, model_name
     failed = Signal(str, str, str)     # session_id, model_name, error_message
 
-    def __init__(
-        self,
-        app_coordinator: AppCoordinator,
-        session_id: str,
-        model_name: str,
-        parent=None,
-    ) -> None:
+    def __init__(self, app_coordinator: AppCoordinator, session_id: str, model_name: str, keep_manual: bool = True,
+                 parent=None) -> None:
         super().__init__(parent)
         self._app_coordinator = app_coordinator
         self._session_id = session_id
         self._model_name = model_name
+        self._keep_manual = keep_manual
 
     def run(self) -> None:
-        logger.info("ModelLoadWorker started: session={}, model={}", self._session_id, self._model_name)
         try:
-            self._app_coordinator.set_detection_model(self._session_id, self._model_name)
+            self._app_coordinator.set_detection_model(self._session_id, self._model_name, self._keep_manual)
             self.finished.emit(self._session_id, self._model_name)
         except Exception as exc:
             logger.opt(exception=True).error("ModelLoadWorker failed")

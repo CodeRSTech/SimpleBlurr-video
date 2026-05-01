@@ -2,21 +2,34 @@ from __future__ import annotations
 
 from app.application.coordinator import AppCoordinator
 from app.shared.logging_cfg import get_logger
+from app.ui.qt.model_change_dlg import ModelChangeWarningDialog
 
 logger = get_logger("UI->DetectionHandler")
 
 
 class DetectionHandler:
-    def __init__(self, window, app_coordinator: AppCoordinator) -> None:
+    def __init__(self, window, app_coordinator) -> None:
         self._window = window
         self._app_coordinator = app_coordinator
+        self._dont_ask_again = False
 
     def on_model_changed(self, model_name: str, start_model_load_fn) -> None:
         session_id = self._window.get_selected_session_id()
-        if session_id is None:
-            return
-        logger.info("Model changed: session={}, model={}", session_id, model_name)
-        start_model_load_fn(session_id, model_name)
+        if session_id is None: return
+
+        keep_manual = True
+        if not self._dont_ask_again and model_name != "None":
+            dlg = ModelChangeWarningDialog(self._window)
+            if dlg.exec() != ModelChangeWarningDialog.DialogCode.Accepted:
+                # Revert combo box silently if they hit cancel
+                self._window.set_selected_detection_model(
+                    self._app_coordinator.get_selected_detection_model_name(session_id)
+                )
+                return
+            keep_manual, self._dont_ask_again = dlg.get_results()
+
+        logger.info("Model changed: session={}, model={}, keep_manual={}", session_id, model_name, keep_manual)
+        start_model_load_fn(session_id, model_name, keep_manual) # Pass it to the controller
 
     def on_detect_current_frame(self, render_fn) -> None:
         session_id = self._window.get_selected_session_id()

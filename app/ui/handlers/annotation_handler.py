@@ -21,6 +21,47 @@ class AnnotationHandler:
         self._move_repeat_count: int = 0
         self._pending_render_fn = None  # set while waiting for a bbox draw
 
+    def handle_new_drawn_box(self, session_id: str, x1: int, y1: int, x2: int, y2: int, render_fn) -> None:
+        dialog = LabelDialog(self._window)
+        if dialog.exec() == LabelDialog.DialogCode.Accepted and dialog.get_label():
+            label = dialog.get_label()
+            try:
+                self._app_coordinator.add_manual_frame_item(session_id, label, (x1, y1, x2, y2))
+                self._window.set_status_text("Annotation added.")
+                render_fn(session_id)
+            except Exception as exc:
+                self._window.show_error("Add Failed", str(exc))
+
+        # Switch back to EDIT mode automatically for a smooth UX
+        self._window.set_tool_mode_edit()
+
+    def handle_existing_box_edit(self, session_id: str, item_key: str, render_fn, new_coords=None) -> None:
+        """Handles both visual drags (new_coords) and table 'Edit' clicks (dialog)."""
+        tab = self._window.get_active_tab_index()
+        item = (self._app_coordinator.get_final_frame_item(session_id, item_key) if tab == 1
+                else self._app_coordinator.get_review_frame_item(session_id, item_key))
+        if item is None: return
+
+        label, bbox_xyxy = item.label, item.bbox_xyxy
+
+        if new_coords:
+            bbox_xyxy = new_coords  # It was visually dragged
+        else:
+            # It was clicked via "Edit Selected" button, show dialog
+            dialog = EditAnnotationDialog(self._window, initial_label=label, initial_bbox_xyxy=bbox_xyxy)
+            if dialog.exec() != EditAnnotationDialog.DialogCode.Accepted: return
+            label, bbox_xyxy = dialog.get_annotation_data()
+
+        try:
+            if tab == 1:
+                self._app_coordinator.update_final_frame_item(session_id, item.item_key, label, bbox_xyxy)
+            else:
+                self._app_coordinator.update_manual_frame_item(session_id, item.item_key, label, bbox_xyxy)
+            render_fn(session_id)
+        except Exception as exc:
+            self._window.show_error("Edit Failed", str(exc))
+
+    # FIXME: Marked for removal
     def on_add_manual(self, render_fn) -> None:
         session_id = self._window.get_selected_session_id()
         if session_id is None:
@@ -46,67 +87,14 @@ class AnnotationHandler:
         )
         self._window.set_status_text("Draw a bounding box on the preview. Click and drag.")
 
-    def _on_bbox_drawn(self, session_id: str, label: str, x1: int, y1: int, x2: int, y2: int) -> None:
-        preview = self._window.preview_widget
-        # Disconnect immediately — one-shot behaviour
-        try:
-            preview.bbox_drawn.disconnect()
-        except RuntimeError:
-            pass
-
-        render_fn = self._pending_render_fn
-        self._pending_render_fn = None
-
-        bbox_xyxy = (x1, y1, x2, y2)
-        try:
-            self._app_coordinator.add_manual_frame_item(session_id, label, bbox_xyxy)
-            if render_fn:
-                render_fn(session_id)
-            self._window.set_status_text("Annotation added.")
-        except Exception as exc:
-            self._window.show_error("Add Failed", str(exc))
-
+    # UPDATE: Direct editing logic without Layer D restrictions
     def on_edit_selected(self, render_fn) -> None:
         session_id = self._window.get_selected_session_id()
-        if session_id is None:
-            return
-
+        if not session_id: return
         keys = self._window.get_selected_frame_item_keys()
-        if len(keys) != 1:
-            self._window.show_error("Edit Failed", "Select exactly one item to edit.")
-            return
+        if len(keys) != 1: return
 
-        tab = self._window.get_active_tab_index()
-        item = (
-            self._app_coordinator.get_final_frame_item(session_id, keys[0])
-            if tab == 1
-            else self._app_coordinator.get_review_frame_item(session_id, keys[0])
-        )
-
-        if item is None:
-            self._window.show_error("Edit Failed", "Item not found.")
-            return
-
-        dialog = EditAnnotationDialog(
-            self._window, initial_label=item.label, initial_bbox_xyxy=item.bbox_xyxy
-        )
-        if dialog.exec() != EditAnnotationDialog.DialogCode.Accepted:
-            return
-
-        label, bbox_xyxy = dialog.get_annotation_data()
-        if not label or bbox_xyxy[2] <= bbox_xyxy[0] or bbox_xyxy[3] <= bbox_xyxy[1]:
-            self._window.show_error("Edit Failed", "Invalid label or bounding box.")
-            return
-
-        try:
-            if tab == 1:
-                self._window.show_error("Edit Info", "Editing Layer D directly is limited. Edit Layer B and re-track.")
-                return
-
-            self._app_coordinator.update_manual_frame_item(session_id, item.item_key, label, bbox_xyxy)
-            render_fn(session_id)
-        except Exception as exc:
-            self._window.show_error("Edit Failed", str(exc))
+        self.handle_existing_box_edit(session_id, keys[0], render_fn)
 
     def on_delete_selected(self, render_fn) -> None:
         session_id = self._window.get_selected_session_id()
@@ -129,28 +117,6 @@ class AnnotationHandler:
 
     def on_duplicate_to_prev(self, render_fn) -> None:
         self._duplicate(render_fn, direction=-1)
-
-    def _duplicate(self, render_fn, direction: int) -> None:
-        session_id = self._window.get_selected_session_id()
-        keys = self._window.get_selected_frame_item_keys()
-        if session_id is None or not keys:
-            return
-
-        tab = self._window.get_active_tab_index()
-        try:
-            if tab == 1:
-                if direction == 1:
-                    self._app_coordinator.duplicate_final_frame_items_to_next_frame(session_id, keys)
-                else:
-                    self._app_coordinator.duplicate_final_frame_items_to_prev_frame(session_id, keys)
-            else:
-                if direction == 1:
-                    self._app_coordinator.duplicate_frame_items_to_next_frame(session_id, keys)
-                else:
-                    self._app_coordinator.duplicate_frame_items_to_prev_frame(session_id, keys)
-            render_fn(session_id)
-        except Exception as exc:
-            self._window.show_error("Duplicate Failed", str(exc))
 
     def on_reset_frame(self, render_fn) -> None:
         session_id = self._window.get_selected_session_id()
@@ -200,30 +166,6 @@ class AnnotationHandler:
     def on_delete_prev_occurrences(self, render_fn) -> None:
         self._delete_occurrences(render_fn, direction=-1)
 
-    def _delete_occurrences(self, render_fn, direction: int) -> None:
-        session_id = self._window.get_selected_session_id()
-        keys = self._window.get_selected_frame_item_keys()
-        if session_id is None or not keys:
-            return
-
-        tab = self._window.get_active_tab_index()
-        if tab != 1:
-            self._window.show_error("Operation Invalid", "This action is only available in the Tracking tab.")
-            return
-
-        try:
-            # item_key format is "track:track-uid" or "manual:manual-id", we need the raw item_id
-            for key in keys:
-                item = self._app_coordinator.get_final_frame_item(session_id, key)
-                if item:
-                    if direction == 1:
-                        self._app_coordinator.delete_next_occurrences(session_id, item.item_id)
-                    else:
-                        self._app_coordinator.delete_prev_occurrences(session_id, item.item_id)
-            render_fn(session_id)
-        except Exception as exc:
-            self._window.show_error("Delete Occurrences Failed", str(exc))
-
     def handle_nudge_key(self, event: QKeyEvent, render_fn) -> bool:
         if event.modifiers() != Qt.KeyboardModifier.NoModifier:
             return False
@@ -261,6 +203,52 @@ class AnnotationHandler:
 
         return True
 
+    def _delete_occurrences(self, render_fn, direction: int) -> None:
+        session_id = self._window.get_selected_session_id()
+        keys = self._window.get_selected_frame_item_keys()
+        if session_id is None or not keys:
+            return
+
+        tab = self._window.get_active_tab_index()
+        if tab != 1:
+            self._window.show_error("Operation Invalid", "This action is only available in the Tracking tab.")
+            return
+
+        try:
+            # item_key format is "track:track-uid" or "manual:manual-id", we need the raw item_id
+            for key in keys:
+                item = self._app_coordinator.get_final_frame_item(session_id, key)
+                if item:
+                    if direction == 1:
+                        self._app_coordinator.delete_next_occurrences(session_id, item.item_id)
+                    else:
+                        self._app_coordinator.delete_prev_occurrences(session_id, item.item_id)
+            render_fn(session_id)
+        except Exception as exc:
+            self._window.show_error("Delete Occurrences Failed", str(exc))
+
+    def _duplicate(self, render_fn, direction: int) -> None:
+        session_id = self._window.get_selected_session_id()
+        keys = self._window.get_selected_frame_item_keys()
+        if session_id is None or not keys:
+            return
+
+        tab = self._window.get_active_tab_index()
+        try:
+            if tab == 1:
+                if direction == 1:
+                    self._app_coordinator.duplicate_final_frame_items_to_next_frame(session_id, keys)
+                else:
+                    self._app_coordinator.duplicate_final_frame_items_to_prev_frame(session_id, keys)
+            else:
+                if direction == 1:
+                    self._app_coordinator.duplicate_frame_items_to_next_frame(session_id, keys)
+                else:
+                    self._app_coordinator.duplicate_frame_items_to_prev_frame(session_id, keys)
+            render_fn(session_id)
+        except Exception as exc:
+            self._window.show_error("Duplicate Failed", str(exc))
+
     def _get_nudge_delta(self, key: int) -> int:
         now = time.monotonic()
         if key != self._last_move_key or (now - self._last_move_ts) > 0.35:
@@ -277,3 +265,23 @@ class AnnotationHandler:
         if self._move_repeat_count <= 12:
             return 4
         return 8
+
+    def _on_bbox_drawn(self, session_id: str, label: str, x1: int, y1: int, x2: int, y2: int) -> None:
+        preview = self._window.preview_widget
+        # Disconnect immediately — one-shot behaviour
+        try:
+            preview.bbox_drawn.disconnect()
+        except RuntimeError:
+            pass
+
+        render_fn = self._pending_render_fn
+        self._pending_render_fn = None
+
+        bbox_xyxy = (x1, y1, x2, y2)
+        try:
+            self._app_coordinator.add_manual_frame_item(session_id, label, bbox_xyxy)
+            if render_fn:
+                render_fn(session_id)
+            self._window.set_status_text("Annotation added.")
+        except Exception as exc:
+            self._window.show_error("Add Failed", str(exc))
