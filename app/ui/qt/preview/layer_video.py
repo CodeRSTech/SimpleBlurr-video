@@ -1,7 +1,6 @@
-# app/ui/qt/preview/layer_video.py
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QRect, Signal
+from PySide6.QtCore import Qt, QRect, QSize, Signal
 from PySide6.QtGui import QImage, QPainter, QColor, QPaintEvent
 from PySide6.QtWidgets import QWidget
 
@@ -12,13 +11,11 @@ class VideoDisplayWidget(QWidget):
     It sits at the bottom of the QStackedLayout and ignores all mouse inputs.
     """
 
-    # Emitted whenever the window resizes or image aspect ratio changes.
-    # The Coordinator uses this to keep the transparent overlays perfectly aligned.
-    pixmap_rect_changed = Signal(QRect)
+    # UPGRADED: Now broadcasts both the layout margins AND the true image dimensions
+    pixmap_rect_changed = Signal(QRect, QSize)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        # Crucial: This layer doesn't need to intercept clicks.
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
         self._image: QImage | None = None
@@ -43,7 +40,6 @@ class VideoDisplayWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
-        # Draw the letterbox background
         painter.fillRect(self.rect(), QColor(30, 30, 30))
 
         if self._image is not None:
@@ -61,8 +57,10 @@ class VideoDisplayWidget(QWidget):
     def _update_pixmap_rect(self) -> None:
         if self._image is None:
             new_rect = QRect()
+            img_size = QSize()
         else:
-            iw, ih = self._image.width(), self._image.height()
+            img_size = self._image.size()
+            iw, ih = img_size.width(), img_size.height()
             ww, wh = self.width(), self.height()
             if iw == 0 or ih == 0 or ww == 0 or wh == 0:
                 new_rect = QRect()
@@ -74,6 +72,9 @@ class VideoDisplayWidget(QWidget):
                 oy = (wh - ph) // 2
                 new_rect = QRect(ox, oy, pw, ph)
 
-        if self._pixmap_rect != new_rect:
+        # Cache the emission so we don't spam the signal 30 times a second
+        current_state = (new_rect, img_size)
+        if not hasattr(self, "_last_emitted") or self._last_emitted != current_state:
             self._pixmap_rect = new_rect
-            self.pixmap_rect_changed.emit(self._pixmap_rect)
+            self._last_emitted = current_state
+            self.pixmap_rect_changed.emit(self._pixmap_rect, img_size)

@@ -79,7 +79,7 @@ class AnnotationHandler:
 
         # Phase 2: activate drawing mode on the preview widget
         self._pending_render_fn = render_fn
-        preview = self._window.preview_widget
+        preview = self._window.preview_container
         preview.set_drawing_enabled(True)
         # Connect one-shot: fires when user finishes drawing
         preview.bbox_drawn.connect(
@@ -267,7 +267,7 @@ class AnnotationHandler:
         return 8
 
     def _on_bbox_drawn(self, session_id: str, label: str, x1: int, y1: int, x2: int, y2: int) -> None:
-        preview = self._window.preview_widget
+        preview = self._window.preview_container
         # Disconnect immediately — one-shot behaviour
         try:
             preview.bbox_drawn.disconnect()
