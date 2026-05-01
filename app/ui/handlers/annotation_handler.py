@@ -11,6 +11,35 @@ from app.ui.qt.annotation_dlg import EditAnnotationDialog, LabelDialog
 
 logger = get_logger("UI->AnnotationHandler")
 
+from functools import wraps
+
+
+def logit(func):
+    """
+    A decorator that logs the execution of a function,
+    including its name, arguments, and any exceptions.
+    """
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        # Log the entry and arguments
+        logger.debug(f"Executing '{func.__name__}' | args={args} | kwargs={kwargs}")
+
+        try:
+            # Execute the actual function
+            result = func(*args, **kwargs)
+
+            # Optional: Log successful completion or even the result
+            logger.debug(f"Finished '{func.__name__}'")
+            return result
+
+        except Exception as e:
+            # Loguru's .exception() automatically captures and formats the traceback
+            logger.exception(f"An error occurred in '{func.__name__}': {e}")
+            raise  # Re-raise the exception so it doesn't fail silently
+
+    return wrapper
+
 
 class AnnotationHandler:
     def __init__(self, window, app_coordinator: AppCoordinator) -> None:
@@ -21,6 +50,7 @@ class AnnotationHandler:
         self._move_repeat_count: int = 0
         self._pending_render_fn = None  # set while waiting for a bbox draw
 
+    @logit
     def handle_new_drawn_box(self, session_id: str, x1: int, y1: int, x2: int, y2: int, render_fn) -> None:
         dialog = LabelDialog(self._window)
         if dialog.exec() == LabelDialog.DialogCode.Accepted and dialog.get_label():
@@ -35,6 +65,7 @@ class AnnotationHandler:
         # Switch back to EDIT mode automatically for a smooth UX
         self._window.set_tool_mode_edit()
 
+    @logit
     def handle_existing_box_edit(self, session_id: str, item_key: str, render_fn, new_coords=None) -> None:
         """Handles both visual drags (new_coords) and table 'Edit' clicks (dialog)."""
         tab = self._window.get_active_tab_index()
@@ -88,6 +119,7 @@ class AnnotationHandler:
         self._window.set_status_text("Draw a bounding box on the preview. Click and drag.")
 
     # UPDATE: Direct editing logic without Layer D restrictions
+    @logit
     def on_edit_selected(self, render_fn) -> None:
         session_id = self._window.get_selected_session_id()
         if not session_id: return
@@ -96,6 +128,7 @@ class AnnotationHandler:
 
         self.handle_existing_box_edit(session_id, keys[0], render_fn)
 
+    @logit
     def on_delete_selected(self, render_fn) -> None:
         session_id = self._window.get_selected_session_id()
         keys = self._window.get_selected_frame_item_keys()

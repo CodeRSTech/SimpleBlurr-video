@@ -12,6 +12,36 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QWidget, QMenu
 
 from app.ui.state.preview_state import ToolMode
+from app.shared.logging_cfg import get_logger
+from functools import wraps
+
+logger = get_logger("UI->Preview->Bbox Layer")
+
+def logit(func):
+    """
+    A decorator that logs the execution of a function,
+    including its name, arguments, and any exceptions.
+    """
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        # Log the entry and arguments
+        logger.debug(f"Executing '{func.__name__}' | args={args} | kwargs={kwargs}")
+
+        try:
+            # Execute the actual function
+            result = func(*args, **kwargs)
+
+            # Optional: Log successful completion or even the result
+            logger.debug(f"Finished '{func.__name__}'")
+            return result
+
+        except Exception as e:
+            # Loguru's .exception() automatically captures and formats the traceback
+            logger.exception(f"An error occurred in '{func.__name__}': {e}")
+            raise  # Re-raise the exception so it doesn't fail silently
+
+    return wrapper
 
 # --- Constants ---
 _BOX_COLOR = QColor(255, 80, 80)
@@ -21,6 +51,8 @@ _HANDLE_COLOR = QColor(255, 255, 255)
 _HANDLE_DRAW_R = 5
 _HANDLE_RADIUS = 6
 _MIN_BBOX_PX = 4
+
+
 
 
 class AnnotationOverlayWidget(QWidget):
@@ -171,12 +203,13 @@ class AnnotationOverlayWidget(QWidget):
             )
         self.update()
 
+    @logit
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton:
             return
 
         state = self._state
-
+        logger.debug("Current state: {}", state)
         if state.drag_mode == _DragMode.DRAW:
             if state.rect.width() < _MIN_BBOX_PX or state.rect.height() < _MIN_BBOX_PX:
                 self.cancel_edit()
@@ -297,6 +330,7 @@ class AnnotationOverlayWidget(QWidget):
             QPoint(int((x2 * sx) + r.left()), int((y2 * sy) + r.top()))
         ).normalized()
 
+    @logit
     def _widget_rect_to_image_space(self, rect: QRect) -> tuple[int, int, int, int]:
         r = self._pixmap_rect
         if r.width() == 0 or self._image_size is None:

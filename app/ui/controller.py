@@ -19,6 +19,35 @@ from app.ui.qt.table_key_filter import FrameTableKeyFilter
 
 logger = get_logger("UI->EditorController")
 
+from functools import wraps
+
+
+def logit(func):
+    """
+    A decorator that logs the execution of a function,
+    including its name, arguments, and any exceptions.
+    """
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        # Log the entry and arguments
+        logger.debug(f"Executing '{func.__name__}' | args={args} | kwargs={kwargs}")
+
+        try:
+            # Execute the actual function
+            result = func(*args, **kwargs)
+
+            # Optional: Log successful completion or even the result
+            logger.debug(f"Finished '{func.__name__}'")
+            return result
+
+        except Exception as e:
+            # Loguru's .exception() automatically captures and formats the traceback
+            logger.exception(f"An error occurred in '{func.__name__}': {e}")
+            raise  # Re-raise the exception so it doesn't fail silently
+
+    return wrapper
+
 
 class EditorController:
     """
@@ -176,7 +205,7 @@ class EditorController:
                 self._window.show_error("Model Change Failed", "A model is already loading.")
                 return
         except AttributeError:
-            logger.debug("Model load thread not initialized. Creating new thread.")
+            logger.debug("Model load thread not initialized. Creating new thread...")
 
         self._model_load_thread = QThread()
         self._model_load_worker = ModelLoadWorker(self._app_coordinator, session_id, model_name)
@@ -229,28 +258,40 @@ class EditorController:
 
     # --- Container Handlers ---
 
+    @logit
     def _on_preview_bbox_drawn(self, x1, y1, x2, y2):
+        logger.debug("Preview bbox drawn: ({}, {}), ({}, {})", x1, y1, x2, y2)
         sid = self._window.get_selected_session_id()
         if sid:
+            logger.debug("Session {}: Calling Annotation Handler to handle drawn bbox...", sid)
             self._annotation_handler.handle_new_drawn_box(sid, x1, y1, x2, y2, self._render_saved_frame)
 
+    @logit
     def _on_preview_bbox_edited(self, item_key, x1, y1, x2, y2):
+        logger.debug("Preview bbox edited ({}, {}, {}, {})", x1, y1, x2, y2)
         sid = self._window.get_selected_session_id()
         if sid:
+            logger.debug("Session {}: Calling Annotation Handler to handle edited bbox...", sid)
             self._annotation_handler.handle_existing_box_edit(sid, item_key, self._render_saved_frame,
                                                               (x1, y1, x2, y2))
 
+    @logit
     def _on_preview_bbox_deleted(self, item_key):
+        logger.debug("Preview box deleted: {})", item_key)
         sid = self._window.get_selected_session_id()
         if sid:
             tab = self._window.get_active_tab_index()
+            logger.debug("Deleting the box from the active tab {}", tab)
+
             if tab == 1:
                 self._app_coordinator.delete_final_frame_items(sid, [item_key])
             else:
                 self._app_coordinator.delete_frame_items(sid, [item_key])
             self._render_saved_frame(sid)
 
+    @logit
     def _on_preview_context_action(self, action: str, item_key: str):
+        logger.debug("Preview box context action: {}, {}", action, item_key)
         sid = self._window.get_selected_session_id()
         if not sid: return
 
