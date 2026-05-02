@@ -159,8 +159,8 @@ class AppCoordinator:
     def get_available_detection_models(self) -> list[DetectionModelItemViewModel]:
         return self._detection.get_available_detection_models()
 
-    def set_detection_model(self, session_id: str, model_name: str) -> None:
-        self._detection.set_detection_model(session_id, model_name)
+    def set_detection_model(self, session_id: str, model_name: str, keep_manual:bool) -> None:
+        self._detection.set_detection_model(session_id, model_name, keep_manual)
 
     def detect_current_frame(self, session_id: str) -> None:
         self._detection.detect_current_frame(session_id)

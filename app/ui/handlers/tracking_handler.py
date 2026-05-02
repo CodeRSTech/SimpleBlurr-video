@@ -15,8 +15,17 @@ class TrackingHandler:
         session_id = self._window.get_selected_session_id()
         if session_id is None:
             return
+
         window = self._window
         app_coordinator = self._app_coordinator
+
+        # --- NEW SAFETY CHECK ---
+        active_session = app_coordinator.get_active_session()
+        if active_session and active_session.has_detection_worker() and active_session.detection_worker.is_running():
+            window.show_error("Action Not Allowed", "Please wait for detection to finish before starting tracking.")
+            return
+        # ------------------------
+
         try:
             window.set_tracking_loading_state(True)
             window.set_tracking_config_warning_visible(False)

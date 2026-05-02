@@ -23,6 +23,7 @@ class DetectionResult:
             bbox_xyxy=self.bbox_xyxy,
             color_hex=self.color_hex,
             confidence=self.confidence,
+            item_key=f"det:{self.item_id}"  # <-- Allows Detection Boxes to Be Selected, Edited, Deleted, or Duplicated
         )
 
     def __post_init__(self):
