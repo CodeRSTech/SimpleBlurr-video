@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from app.application.coordinator import AppCoordinator
 from app.shared.logging_cfg import get_logger
-from app.ui.qt.model_change_dlg import ModelChangeWarningDialog
+from app.ui.qt.dialogue_boxes.model_change_dlg import ModelChangeWarningDialog
 
 logger = get_logger("UI->DetectionHandler")
 
@@ -74,5 +73,5 @@ class DetectionHandler:
         render_fn(session_id)
 
         active = self._app_coordinator.get_active_session()
-        if active and active.tracked_frame_items_by_frame_index:
+        if active and active.tracked_frame_boxs_by_frame_index:
             self._window.set_tracking_config_warning_visible(True)

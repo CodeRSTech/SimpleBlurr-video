@@ -7,9 +7,9 @@ from app.application.session_manager import SessionManager
 from app.domain.session import Session
 from app.infrastructure.tracking.track_worker import TrackingWorker
 from app.domain.views import (
-    FrameDataItemViewModel,
-    FramePresentationViewModel,
-    FrameItemViewModel,
+    FrameDataBoxViewModel,
+    FrameBoxesViewModel,
+    FrameBoxViewModel,
 )
 from app.shared.logging_cfg import get_logger
 
@@ -26,15 +26,15 @@ class TrackingService:
     def __init__(self, session_manager: SessionManager) -> None:
         self._sm = session_manager
 
-    def delete_final_frame_items(self, session_id: str, item_keys: Iterable[str]) -> None:
+    def delete_final_frame_boxs(self, session_id: str, item_keys: Iterable[str]) -> None:
         session = self._sm.get_session(session_id)
         frame_index = session.playback.current_frame_index
         keys = {k for k in item_keys if k}
         if not keys:
             return
-        items = session.final_frame_items_by_frame_index.get(frame_index, [])
-        session.final_frame_items_by_frame_index[frame_index] = [
-            i for i in items if i.item_key not in keys
+        items = session.final_frame_boxs_by_frame_index.get(frame_index, [])
+        session.final_frame_boxs_by_frame_index[frame_index] = [
+            i for i in items if i.key not in keys
         ]
         logger.info("Deleted {} D item(s) from session {} frame {}", len(keys), session_id, frame_index)
 
@@ -44,11 +44,11 @@ class TrackingService:
         max_frame = max(session.metadata.frame_count - 1, 0)
 
         for frame_index in range(start, max_frame + 1):
-            items = session.final_frame_items_by_frame_index.get(frame_index, [])
-            new_items = [i for i in items if i.item_id != item_id]
+            items = session.final_frame_boxs_by_frame_index.get(frame_index, [])
+            new_items = [i for i in items if i.id != item_id]
             if len(new_items) == len(items):
                 break  # item isn't found in this frame — stop
-            session.final_frame_items_by_frame_index[frame_index] = new_items
+            session.final_frame_boxs_by_frame_index[frame_index] = new_items
 
         logger.info("Deleted next occurrences of '{}' from session {}", item_id, session_id)
 
@@ -57,41 +57,41 @@ class TrackingService:
         start = session.playback.current_frame_index - 1
 
         for frame_index in range(start, -1, -1):
-            items = session.final_frame_items_by_frame_index.get(frame_index, [])
-            new_items = [i for i in items if i.item_id != item_id]
+            items = session.final_frame_boxs_by_frame_index.get(frame_index, [])
+            new_items = [i for i in items if i.id != item_id]
             if len(new_items) == len(items):
                 break
-            session.final_frame_items_by_frame_index[frame_index] = new_items
+            session.final_frame_boxs_by_frame_index[frame_index] = new_items
 
         logger.info("Deleted previous occurrences of '{}' from session {}", item_id, session_id)
 
-    def duplicate_final_frame_items_to_next_frame(
+    def duplicate_final_frame_boxs_to_next_frame(
         self, session_id: str, item_keys: Iterable[str]
     ) -> None:
         self._duplicate_final_items(session_id, item_keys, direction=1)
 
-    def duplicate_final_frame_items_to_prev_frame(
+    def duplicate_final_frame_boxs_to_prev_frame(
         self, session_id: str, item_keys: Iterable[str]
     ) -> None:
         self._duplicate_final_items(session_id, item_keys, direction=-1)
 
-    def get_final_presentation(self, session_id: str) -> FramePresentationViewModel:
+    def get_final_presentation(self, session_id: str) -> FrameBoxesViewModel:
         session = self._sm.get_session(session_id)
         frame_index = session.playback.current_frame_index
-        items = session.final_frame_items_by_frame_index.get(frame_index, [])
-        return FramePresentationViewModel(
-            frame_data_items=[self._to_view_model(i) for i in items]
+        items = session.final_frame_boxs_by_frame_index.get(frame_index, [])
+        return FrameBoxesViewModel(
+            frame_data_boxes=[self._to_view_model(i) for i in items]
         )
 
-    def get_final_frame_item(
+    def get_final_frame_box(
         self, session_id: str, item_key: str
-    ) -> FrameItemViewModel | None:
+    ) -> FrameBoxViewModel | None:
         session = self._sm.get_session(session_id)
         frame_index = session.playback.current_frame_index
-        items = session.final_frame_items_by_frame_index.get(frame_index, [])
-        return next((i for i in items if i.item_key == item_key), None)
+        items = session.final_frame_boxs_by_frame_index.get(frame_index, [])
+        return next((i for i in items if i.key == item_key), None)
 
-    def move_final_frame_items(
+    def move_final_frame_boxs(
         self,
         session_id: str,
         item_keys: Iterable[str],
@@ -103,10 +103,10 @@ class TrackingService:
         keys = {k for k in item_keys if k}
         if not keys:
             return 0
-        items = session.final_frame_items_by_frame_index.get(frame_index, [])
+        items = session.final_frame_boxs_by_frame_index.get(frame_index, [])
         moved = 0
         for item in items:
-            if item.item_key not in keys:
+            if item.key not in keys:
                 continue
             x1, y1, x2, y2 = item.bbox_xyxy
             item.bbox_xyxy = (x1 + delta_x, y1 + delta_y, x2 + delta_x, y2 + delta_y)
@@ -115,18 +115,18 @@ class TrackingService:
 
     def reset_final_frame(self, session_id: str, frame_index: int) -> None:
         session = self._sm.get_session(session_id)
-        if frame_index in session.tracked_frame_items_by_frame_index:
-            session.final_frame_items_by_frame_index[frame_index] = copy.deepcopy(
-                session.tracked_frame_items_by_frame_index[frame_index]
+        if frame_index in session.tracked_frame_boxs_by_frame_index:
+            session.final_frame_boxs_by_frame_index[frame_index] = copy.deepcopy(
+                session.tracked_frame_boxs_by_frame_index[frame_index]
             )
         else:
-            session.final_frame_items_by_frame_index.pop(frame_index, None)
+            session.final_frame_boxs_by_frame_index.pop(frame_index, None)
         logger.info("Reset D frame {} for session {}", frame_index, session_id)
 
     def reset_all_final_frames(self, session_id: str) -> None:
         session = self._sm.get_session(session_id)
-        session.final_frame_items_by_frame_index = copy.deepcopy(
-            session.tracked_frame_items_by_frame_index
+        session.final_frame_boxs_by_frame_index = copy.deepcopy(
+            session.tracked_frame_boxs_by_frame_index
         )
         self._apply_tracker_confidence_filter(session)
         logger.info("Reset all D frames for session {}", session_id)
@@ -140,17 +140,17 @@ class TrackingService:
             return
 
         if source == "layer_a":
-            source_data = session.raw_frame_items_by_frame_index
+            source_data = session.raw_frame_boxs_by_frame_index
         elif source == "layer_b":
-            source_data = session.review_frame_items_by_frame_index
+            source_data = session.review_frame_boxs_by_frame_index
         else:
             raise ValueError(f"Unknown tracking source: {source}")
 
         if not source_data:
             raise ValueError(f"Source layer '{source}' is empty. Run detection first.")
 
-        session.tracked_frame_items_by_frame_index.clear()
-        session.final_frame_items_by_frame_index.clear()
+        session.tracked_frame_boxs_by_frame_index.clear()
+        session.final_frame_boxs_by_frame_index.clear()
 
         worker = TrackingWorker(
             strategy_name=strategy,
@@ -167,8 +167,8 @@ class TrackingService:
             return
 
         tracked_data = session.tracking_worker.get_tracked_data()
-        session.tracked_frame_items_by_frame_index = tracked_data
-        session.final_frame_items_by_frame_index = copy.deepcopy(tracked_data)
+        session.tracked_frame_boxs_by_frame_index = tracked_data
+        session.final_frame_boxs_by_frame_index = copy.deepcopy(tracked_data)
         self._apply_tracker_confidence_filter(session)
 
         logger.info(
@@ -176,12 +176,12 @@ class TrackingService:
             session_id, len(tracked_data),
         )
 
-    def update_final_frame_item(self, session_id: str, item_key: str, label: str,
+    def update_final_frame_box(self, session_id: str, item_key: str, label: str,
                                 bbox_xyxy: tuple[int, int, int, int]) -> None:
         """Allows direct modification of a tracked/final item."""
         session = self._sm.get_session(session_id)
         frame_index = session.playback.current_frame_index
-        item = self.get_final_frame_item(session_id, item_key)
+        item = self.get_final_frame_box(session_id, item_key)
         if item is None:
             raise ValueError(f"Unknown frame item: {item_key}")
         item.label = label
@@ -191,8 +191,8 @@ class TrackingService:
     @staticmethod
     def _apply_tracker_confidence_filter(session: Session) -> None:
         threshold = session.settings.min_tracker_confidence
-        for frame_index, items in list(session.final_frame_items_by_frame_index.items()):
-            session.final_frame_items_by_frame_index[frame_index] = [
+        for frame_index, items in list(session.final_frame_boxs_by_frame_index.items()):
+            session.final_frame_boxs_by_frame_index[frame_index] = [
                 i for i in items
                 if i.confidence is None or i.confidence >= threshold
             ]
@@ -211,40 +211,40 @@ class TrackingService:
         if not keys:
             return
 
-        source_items = session.final_frame_items_by_frame_index.get(current, [])
-        to_dup = [i for i in source_items if i.item_key in keys]
+        source_items = session.final_frame_boxs_by_frame_index.get(current, [])
+        to_dup = [i for i in source_items if i.key in keys]
         if not to_dup:
             return
 
-        target_list = session.final_frame_items_by_frame_index.setdefault(target, [])
+        target_list = session.final_frame_boxs_by_frame_index.setdefault(target, [])
         for src in to_dup:
-            target_list.append(FrameItemViewModel(
-                item_id=f"manual-{session.next_annotation_id}",
+            target_list.append(FrameBoxViewModel(
+                id=f"manual-{session.next_annotation_id}",
                 source="Manual",
                 label=src.label,
                 bbox_xyxy=src.bbox_xyxy,
                 color_hex=src.color_hex,
                 confidence=src.confidence,
-                item_key=f"manual:manual-{session.next_annotation_id}",
+                key=f"manual:manual-{session.next_annotation_id}",
             ))
             session.next_annotation_id += 1
 
         logger.info("Duplicated {} D item(s) to frame {} session {}", len(to_dup), target, session_id)
 
     @staticmethod
-    def _to_view_model(item: FrameItemViewModel) -> FrameDataItemViewModel:
+    def _to_view_model(item: FrameBoxViewModel) -> FrameDataBoxViewModel:
         """
         Convert a ReviewFrameItemViewModel to a FrameDataItemViewModel.
         """
-        return FrameDataItemViewModel(
-            item_id=item.item_id,
+        return FrameDataBoxViewModel(
+            id=item.id,
             source=item.source,
             label=item.label,
-            confidence_text="" if item.confidence is None else f"{item.confidence:.2f}",
-            bbox_text=(
+            confidence_txt="" if item.confidence is None else f"{item.confidence:.2f}",
+            bbox_txt=(
                 f"({item.bbox_xyxy[0]},{item.bbox_xyxy[1]})-"
                 f"({item.bbox_xyxy[2]},{item.bbox_xyxy[3]})"
             ),
             color_hex=item.color_hex,
-            item_key=item.item_key,
+            key=item.key,
         )

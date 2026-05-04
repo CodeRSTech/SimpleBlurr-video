@@ -1,57 +1,59 @@
 from dataclasses import dataclass, field
 
+# RIGHT PANEL SPECIFIC VIEW MODELS
 
 @dataclass(slots=True)
-class SessionListItemViewModel:
+class DetectionModelsViewModel:
+    """
+    Used by
+    ``AppCoordinator.get_available_detection_models()`` -> ``DetectionService.get_available_detection_models()``
+    to populate the detection boxes table.
+
+    Attributes:
+        model_id (str): Unique identifier for the detection model.
+        display_name (str): Human-readable name for the detection model.
+    """
+    model_id: str
+    display_name: str
+
+# SESSION LIST SPECIFIC VIEW MODELS
+
+@dataclass(slots=True)
+class SessionFileListViewModel:
+    """
+    View model for the list of sessions.
+    """
     session_id: str
     title: str
     subtitle: str
 
-
-@dataclass(slots=True)
-class FrameDataItemViewModel:
-    item_id: str
-    source: str
-    label: str
-    confidence_text: str
-    bbox_text: str
-    color_hex: str
-    item_key: str
-
-
-@dataclass(slots=True)
-class FramePresentationViewModel:
-    frame_data_items: list[FrameDataItemViewModel] = field(default_factory=list)
-
-
-@dataclass(slots=True)
-class DetectionModelItemViewModel:
-    model_id: str
-    display_name: str
-
-
-@dataclass(slots=True)
-class FrameItemViewModel:
-    item_id: str
-    source: str
-    label: str
-    bbox_xyxy: tuple[int, int, int, int]
-    color_hex: str
-    confidence: float | None = None
-    item_key: str = ""
-
-
 @dataclass(slots=True)
 class SessionSettingsViewModel:
     """
-    Snapshot of ProcessingSettings shaped for direct widget restoration.
+    Snapshot of ``ProcessingSettings`` shaped for direct widget restoration while
+    switching sessions.
 
-    Built by EditorFacade.get_session_settings() on every session switch.
+    Built by ``AppCoordinator.get_session_settings()`` on every session switch.
     The UI reads this once and sets all right-panel widgets from it without
     knowing anything about the domain model.
 
-    chosen_labels is pre-joined as a comma-separated string so the UI can
-    assign it directly to a QLineEdit without any further processing.
+    ``chosen_labels`` is pre-joined as a comma-separated string so the UI can
+    assign it directly to a ``QLineEdit`` without any further processing.
+
+    Attributes:
+        detection_model_name (str): Name of the detection model to be used.
+        min_detection_confidence (float): Minimum confidence threshold for detection.
+        chosen_labels (str): Comma-separated list of labels to be selected for detection,
+            e.g., "person, cat, dog".
+        tracking_strategy (str): Strategy to be used for tracking objects.
+        tracking_source (str): Source of input data for tracking purposes.
+        min_iou (float): Minimum Intersection-over-Union (IoU) threshold for tracking.
+        min_tracker_confidence (float): Minimum confidence threshold for the tracker.
+        confidence_decay (float): Rate of decay for tracker's confidence over time.
+        draw_boxes (bool): Whether to draw bounding boxes in the preview or render output.
+        blur_enabled (bool): Whether to enable blurring visual effects in the preview
+            or render.
+        blur_strength (float): Strength of the blur effect when `blur_enabled` is true.
     """
     # --- Detection ---
     detection_model_name: str
@@ -69,3 +71,61 @@ class SessionSettingsViewModel:
     draw_boxes: bool
     blur_enabled: bool
     blur_strength: float
+
+
+# DATA PANEL SPECIFIC VIEW MODELS
+
+@dataclass(slots=True)
+class FrameDataBoxViewModel:
+    """
+    View model for a **single** bounding box data of a frame including metadata (source, label, color, key, etc.).
+
+    Represented by a **single row** in the following table:
+
+    ===  ============  ========  ==============  ======================  =========  =====
+    ID#  source        label     conf txt        bbox txt                color_hex  key
+    ===  ============  ========  ==============  ======================  =========  =====
+    0    Detections    Person    0.96            (123,443), (222, 600)   #d3ad3d    key_1
+    1    Detections    Bicycle   0.88            (10, 20), (50, 80)      #ff0000    key_2
+    2    Manual_Entry  Car       0.99            (100, 100), (300, 300)  #00ff00    key_3
+    ===  ============  ========  ==============  ======================  =========  =====
+
+    """
+    id: str
+    source: str
+    label: str
+    confidence_txt: str
+    bbox_txt: str
+    color_hex: str
+    key: str
+
+
+@dataclass(slots=True)
+class FrameBoxesViewModel:
+    """
+    A table of Bounding Box and Metadata (``FrameDataBoxViewModel``) for a single frame.
+
+    Example table:
+
+    ===  ============  ========  ==============  ======================  =========  =====
+    ID#  source        label     conf txt        bbox txt                color_hex  key
+    ===  ============  ========  ==============  ======================  =========  =====
+    0    Detections    Person    0.96            (123,443), (222, 600)   #d3ad3d    key_1
+    1    Detections    Bicycle   0.88            (10, 20), (50, 80)      #ff0000    key_2
+    2    Manual_Entry  Car       0.99            (100, 100), (300, 300)  #00ff00    key_3
+    ===  ============  ========  ==============  ======================  =========  =====
+    """
+    frame_data_boxes: list[FrameDataBoxViewModel] = field(default_factory=list)
+
+
+
+@dataclass(slots=True)
+class FrameBoxViewModel:
+
+    id: str
+    source: str
+    label: str
+    bbox_xyxy: tuple[int, int, int, int]
+    color_hex: str
+    confidence: float | None = None
+    key: str = ""

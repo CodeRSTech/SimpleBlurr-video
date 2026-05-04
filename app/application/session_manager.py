@@ -5,7 +5,7 @@ from collections.abc import Iterable
 
 from app.domain.session import Session
 from app.infrastructure.video.vid_reader import VideoReader
-from app.domain.views import SessionListItemViewModel
+from app.domain.views import SessionFileListViewModel
 from app.shared.logging_cfg import get_logger
 
 logger = get_logger("Application->SessionManager")
@@ -106,12 +106,12 @@ class SessionManager:
     # View model builders
     # -------------------------------------------------------------------------
 
-    def get_session_list_items(self) -> list[SessionListItemViewModel]:
-        items: list[SessionListItemViewModel] = []
+    def get_session_list_items(self) -> list[SessionFileListViewModel]:
+        items: list[SessionFileListViewModel] = []
         for session in self._sessions.values():
             m = session.metadata
             items.append(
-                SessionListItemViewModel(
+                SessionFileListViewModel(
                     session_id=session.session_id,
                     title=os.path.basename(m.path),
                     subtitle=f"{m.width}x{m.height} | {m.fps:.2f} fps | {m.frame_count} frames",

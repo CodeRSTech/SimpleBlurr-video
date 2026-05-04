@@ -1,5 +1,5 @@
-from app.domain.views import FrameItemViewModel
+from app.domain.views import FrameBoxViewModel
 
 __all__ = ["FrameItemsByIndex"]
 
-type FrameItemsByIndex = dict[int, list[FrameItemViewModel]]
+type FrameItemsByIndex = dict[int, list[FrameBoxViewModel]]

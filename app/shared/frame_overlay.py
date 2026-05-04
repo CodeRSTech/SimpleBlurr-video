@@ -3,12 +3,12 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from app.domain.views import FrameDataItemViewModel
+from app.domain.views import FrameDataBoxViewModel
 
 
 def draw_frame_overlays(
         frame: np.ndarray,
-        items: list[FrameDataItemViewModel],
+        items: list[FrameDataBoxViewModel],
 ) -> np.ndarray:
     if not items:
         return frame
@@ -16,7 +16,7 @@ def draw_frame_overlays(
     result = frame.copy()
 
     for item in items:
-        bbox_text = item.bbox_text.strip()
+        bbox_text = item.bbox_txt.strip()
         try:
             start_text, end_text = bbox_text.split("-")
             x1_text, y1_text = start_text.strip("()").split(",")
@@ -31,7 +31,7 @@ def draw_frame_overlays(
         color = _hex_to_bgr(item.color_hex)
 
         cv2.rectangle(result, (x1, y1), (x2, y2), color, 2)
-        label = f"{item.item_id}:{item.label} {item.confidence_text}"
+        label = f"{item.id}:{item.label} {item.confidence_txt}"
         cv2.putText(
             result,
             label,

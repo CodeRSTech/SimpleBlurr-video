@@ -17,39 +17,10 @@ from app.ui.handlers import (
 from app.ui.qt.model_loader import ModelLoadWorker
 from app.ui.qt.table_key_filter import FrameTableKeyFilter
 
-logger = get_logger("UI->EditorController")
-
-from functools import wraps
+logger = get_logger("UI->Controller")
 
 
-def logit(func):
-    """
-    A decorator that logs the execution of a function,
-    including its name, arguments, and any exceptions.
-    """
-
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        # Log the entry and arguments
-        logger.debug(f"Executing '{func.__name__}' | args={args} | kwargs={kwargs}")
-
-        try:
-            # Execute the actual function
-            result = func(*args, **kwargs)
-
-            # Optional: Log successful completion or even the result
-            logger.debug(f"Finished '{func.__name__}'")
-            return result
-
-        except Exception as e:
-            # Loguru's .exception() automatically captures and formats the traceback
-            logger.exception(f"An error occurred in '{func.__name__}': {e}")
-            raise  # Re-raise the exception so it doesn't fail silently
-
-    return wrapper
-
-
-class EditorController:
+class Controller:
     """
     Slimmed Qt application controller.
     Wires UI signals to Handlers. Owns the playback timer and the central frame renderer.
@@ -148,49 +119,21 @@ class EditorController:
 
         items_to_draw = []
         if app_coordinator.draw_boxes_enabled(session_id):
-            items_to_draw = display_data.frame_data_items
+            items_to_draw = display_data.frame_data_boxes
 
         # Pass active boxes to the new container
         active_bboxes = {}
-        for item in display_data.frame_data_items:
-            match = re.match(r"\((-?\d+),(-?\d+)\)-\((-?\d+),(-?\d+)\)", item.bbox_text)
+        for item in display_data.frame_data_boxes:
+            match = re.match(r"\((-?\d+),(-?\d+)\)-\((-?\d+),(-?\d+)\)", item.bbox_txt)
             if match:
-                active_bboxes[item.item_key] = tuple(map(int, match.groups()))
+                active_bboxes[item.key] = tuple(map(int, match.groups()))
 
         self._window.preview_container.set_active_bboxes(active_bboxes)
 
         frame_out = draw_frame_overlays(frame, items_to_draw)
         self._window.preview_container.set_image(bgr_frame_to_qimage(frame_out))
-        self._window.set_frame_data_items(detections_data.frame_data_items)
-        self._window.set_tracker_data_items(trackers_data.frame_data_items)
-
-    # FIXME: Marked for removal.
-    """    
-    def _on_preview_bbox_edited(self, item_key: str, x1: int, y1: int, x2: int, y2: int) -> None:
-        session_id = self._window.get_selected_session_id()
-        if not session_id:
-            return
-
-        tab_idx = self._window.get_active_tab_index()
-
-        # Protect backend state: Direct Layer D edits are locked by architectural contract
-        if tab_idx == 1:
-            self._window.show_error("Edit Info", "Editing Layer D directly is limited. Edit Layer B and re-track.")
-            self._window.preview_container.cancel_edit()
-            self._render_saved_frame(session_id)
-            return
-
-        item = self._app_coordinator.get_review_frame_item(session_id, item_key)
-        if item:
-            try:
-                self._app_coordinator.update_manual_frame_item(
-                    session_id, item_key, item.label, (x1, y1, x2, y2)
-                )
-                self._render_saved_frame(session_id)
-            except Exception as exc:
-                logger.error("Failed to update bbox: {}", exc)
-                self._window.show_error("Edit Failed", str(exc))
-    """
+        self._window.set_frame_data_items(detections_data.frame_data_boxes)
+        self._window.set_tracker_data_items(trackers_data.frame_data_boxes)
 
     def _stop_playback(self) -> None:
         self._playback_timer.stop()
@@ -258,7 +201,7 @@ class EditorController:
 
     # --- Container Handlers ---
 
-    @logit
+    
     def _on_preview_bbox_drawn(self, x1, y1, x2, y2):
         logger.debug("Preview bbox drawn: ({}, {}), ({}, {})", x1, y1, x2, y2)
         sid = self._window.get_selected_session_id()
@@ -266,7 +209,7 @@ class EditorController:
             logger.debug("Session {}: Calling Annotation Handler to handle drawn bbox...", sid)
             self._annotation_handler.handle_new_drawn_box(sid, x1, y1, x2, y2, self._render_saved_frame)
 
-    @logit
+    
     def _on_preview_bbox_edited(self, item_key, x1, y1, x2, y2):
         logger.debug("Preview bbox edited ({}, {}, {}, {})", x1, y1, x2, y2)
         sid = self._window.get_selected_session_id()
@@ -275,7 +218,7 @@ class EditorController:
             self._annotation_handler.handle_existing_box_edit(sid, item_key, self._render_saved_frame,
                                                               (x1, y1, x2, y2))
 
-    @logit
+    
     def _on_preview_bbox_deleted(self, item_key):
         logger.debug("Preview box deleted: {})", item_key)
         sid = self._window.get_selected_session_id()
@@ -284,12 +227,12 @@ class EditorController:
             logger.debug("Deleting the box from the active tab {}", tab)
 
             if tab == 1:
-                self._app_coordinator.delete_final_frame_items(sid, [item_key])
+                self._app_coordinator.delete_final_frame_boxs(sid, [item_key])
             else:
-                self._app_coordinator.delete_frame_items(sid, [item_key])
+                self._app_coordinator.delete_frame_boxs(sid, [item_key])
             self._render_saved_frame(sid)
 
-    @logit
+    
     def _on_preview_context_action(self, action: str, item_key: str):
         logger.debug("Preview box context action: {}, {}", action, item_key)
         sid = self._window.get_selected_session_id()
@@ -298,20 +241,20 @@ class EditorController:
         # Route the context menu actions directly to the existing backend logic!
         if action == "duplicate_next":
             if self._window.get_active_tab_index() == 1:
-                self._app_coordinator.duplicate_final_frame_items_to_next_frame(sid, [item_key])
+                self._app_coordinator.duplicate_final_frame_boxs_to_next_frame(sid, [item_key])
             else:
-                self._app_coordinator.duplicate_frame_items_to_next_frame(sid, [item_key])
+                self._app_coordinator.duplicate_frame_boxs_to_next_frame(sid, [item_key])
         elif action == "duplicate_prev":
             if self._window.get_active_tab_index() == 1:
-                self._app_coordinator.duplicate_final_frame_items_to_prev_frame(sid, [item_key])
+                self._app_coordinator.duplicate_final_frame_boxs_to_prev_frame(sid, [item_key])
             else:
-                self._app_coordinator.duplicate_frame_items_to_prev_frame(sid, [item_key])
+                self._app_coordinator.duplicate_frame_boxs_to_prev_frame(sid, [item_key])
         elif action == "delete_next":
             # Extract underlying item_id from item_key (e.g. "track:123" -> "123")
-            item_id = self._app_coordinator.get_final_frame_item(sid, item_key).item_id
+            item_id = self._app_coordinator.get_final_frame_box(sid, item_key).id
             self._app_coordinator.delete_next_occurrences(sid, item_id)
         elif action == "delete_prev":
-            item_id = self._app_coordinator.get_final_frame_item(sid, item_key).item_id
+            item_id = self._app_coordinator.get_final_frame_box(sid, item_key).id
             self._app_coordinator.delete_prev_occurrences(sid, item_id)
 
         self._render_saved_frame(sid)
@@ -346,19 +289,19 @@ class EditorController:
 
     # ------------------------
 
-    def on_add_manual_frame_item_requested(self):
+    def on_add_manual_frame_box_requested(self):
         logger.debug("Add manual frame item requested")
         self._annotation_handler.on_add_manual(self._render_saved_frame)
 
-    def on_edit_selected_frame_item_requested(self):
+    def on_edit_selected_frame_box_requested(self):
         logger.debug("Edit selected frame item requested")
         self._annotation_handler.on_edit_selected(self._render_saved_frame)
 
-    def on_delete_selected_frame_item_requested(self):
+    def on_delete_selected_frame_box_requested(self):
         logger.debug("Delete selected frame item requested")
         self._annotation_handler.on_delete_selected(self._render_saved_frame)
 
-    def on_duplicate_selected_frame_item_requested(self):
+    def on_duplicate_selected_frame_box_requested(self):
         logger.debug("Duplicate selected frame item requested")
         self._annotation_handler.on_duplicate_to_next(self._render_saved_frame)
 
@@ -450,7 +393,7 @@ class EditorController:
         detector = self._detection_handler
         window.model_changed.connect(self.on_model_changed)
         window.detect_current_frame_requested.connect(self.on_detect_current_frame_requested)
-        window.start_background_detection_requested.connect(detector.on_start_background_detection)
+        window.start_detection_worker_requested.connect(detector.on_start_background_detection)
         window.min_confidence_changed.connect(self.on_min_confidence_changed)
         window.chosen_labels_changed.connect(self.on_chosen_labels_changed)
 
@@ -466,16 +409,16 @@ class EditorController:
 
     def __connect_signals_to_annotation_handler(self, window: MainWindow):
         logger.debug("Connecting signals to annotation handler.")
-        window.add_manual_frame_item_requested.connect(self.on_add_manual_frame_item_requested)
-        window.edit_selected_frame_item_requested.connect(self.on_edit_selected_frame_item_requested)
-        window.delete_selected_frame_item_requested.connect(self.on_delete_selected_frame_item_requested)
-        window.duplicate_selected_frame_item_requested.connect(self.on_duplicate_selected_frame_item_requested)
+        window.add_manual_box_requested.connect(self.on_add_manual_frame_box_requested)
+        window.edit_selected_box_requested.connect(self.on_edit_selected_frame_box_requested)
+        window.delete_selected_box_requested.connect(self.on_delete_selected_frame_box_requested)
+        window.duplicate_selected_box_requested.connect(self.on_duplicate_selected_frame_box_requested)
 
         # Frame Data Annotation (Row 2)
         window.duplicate_to_prev_frame_requested.connect(self.on_duplicate_to_prev_frame_requested)
 
-        window.reset_current_frame_review_requested.connect(self.on_reset_current_frame_review_requested)
-        window.reset_all_review_requested.connect(self.on_reset_all_review_requested)
+        window.reset_current_detections_requested.connect(self.on_reset_current_frame_review_requested)
+        window.reset_all_detections_requested.connect(self.on_reset_all_review_requested)
 
         window.reset_tracker_frame_requested.connect(self.on_reset_tracker_frame_requested)
 

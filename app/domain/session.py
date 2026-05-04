@@ -27,13 +27,13 @@ class Session:
     _tracking_worker: TrackingWorker | None = None
 
     # Layer A: Immutable Raw Detections (written only by DetectionWorker)
-    raw_frame_items_by_frame_index: FrameItemsByIndex = field(default_factory=dict)
+    raw_frame_boxs_by_frame_index: FrameItemsByIndex = field(default_factory=dict)
     # Layer B: Editable pre-tracking review (lazily seeded from A, user-editable)
-    review_frame_items_by_frame_index: FrameItemsByIndex = field(default_factory=dict)
+    review_frame_boxs_by_frame_index: FrameItemsByIndex = field(default_factory=dict)
     # Layer C: Tracker-derived tracks (written only by TrackingWorker, not user-editable)
-    tracked_frame_items_by_frame_index: FrameItemsByIndex = field(default_factory=dict)
+    tracked_frame_boxs_by_frame_index: FrameItemsByIndex = field(default_factory=dict)
     # Layer D: Final editable timeline (auto-seeded from C after tracking, user-editable)
-    final_frame_items_by_frame_index: FrameItemsByIndex = field(default_factory=dict)
+    final_frame_boxs_by_frame_index: FrameItemsByIndex = field(default_factory=dict)
 
     next_annotation_id: int = 1
     playback: PlaybackState = field(default_factory=PlaybackState)

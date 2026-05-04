@@ -10,7 +10,7 @@ from app.infrastructure.tracking.hungarian_tracker import (
     TrackInput,
     TrackState,
 )
-from app.domain.views.view_models import FrameItemViewModel
+from app.domain.views.view_models import FrameBoxViewModel
 from app.domain.processing_settings import ProcessingSettings
 from app.shared.logging_cfg import get_logger
 from app.domain.typing import FrameItemsByIndex
@@ -46,7 +46,7 @@ class DummyTracker:
                 new_item = copy.deepcopy(item)
                 new_item.source = "Track (Dummy)"
                 new_item.color_hex = "#ff00ff"
-                new_item.item_key = f"track:{new_item.item_id}"
+                new_item.key = f"track:{new_item.id}"
                 tracked[frame_idx].append(new_item)
         return tracked
 
@@ -84,14 +84,14 @@ class HungarianStrategy:
             active: list[TrackState] = self._engine.update(detections)
             
             tracked[frame_idx] = [
-                FrameItemViewModel(
-                    item_id=f"track-{t.uid}",
+                FrameBoxViewModel(
+                    id=f"track-{t.uid}",
                     source="Track (Hungarian)",
                     label=t.label,
                     bbox_xyxy=t.bbox_xyxy,
                     color_hex=uid_to_color(t.uid),
                     confidence=round(t.confidence, 4),
-                    item_key=f"track:{t.uid}",
+                    key=f"track:{t.uid}",
                 )
                 for t in active
             ]

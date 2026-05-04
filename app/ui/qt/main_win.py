@@ -25,13 +25,12 @@ from PySide6.QtWidgets import (
 )
 
 from app.domain.views import (
-    DetectionModelItemViewModel,
-    FrameDataItemViewModel,
-    SessionListItemViewModel,
+    DetectionModelsViewModel,
+    FrameDataBoxViewModel,
+    SessionFileListViewModel,
     SessionSettingsViewModel,
 )
 from app.shared.logging_cfg import get_logger
-from app.ui.qt.prev_widget import PreviewWidget
 from app.ui.qt.right_panel import RightControlPanel
 from app.ui.qt.preview.container import PreviewContainer
 from app.ui.state.preview_state import ToolMode
@@ -56,12 +55,12 @@ class MainWindow(QMainWindow):
     session_selected = Signal(str)
 
     # --- Signals: Data tab (Action Row) ---
-    add_manual_frame_item_requested = Signal()
-    delete_selected_frame_item_requested = Signal()
-    duplicate_selected_frame_item_requested = Signal()
-    edit_selected_frame_item_requested = Signal()
-    reset_all_review_requested = Signal()
-    reset_current_frame_review_requested = Signal()
+    add_manual_box_requested = Signal()
+    delete_selected_box_requested = Signal()
+    duplicate_selected_box_requested = Signal()
+    edit_selected_box_requested = Signal()
+    reset_all_detections_requested = Signal()
+    reset_current_detections_requested = Signal()
 
     # --- NEW Signals: Action Row 2 ---
     duplicate_to_prev_frame_requested = Signal()
@@ -72,7 +71,7 @@ class MainWindow(QMainWindow):
 
     # --- Signals: Bridged from RightControlPanel ---
     detect_current_frame_requested = Signal()
-    start_background_detection_requested = Signal()
+    start_detection_worker_requested = Signal()
     model_changed = Signal(str)
     min_confidence_changed = Signal(float)
     chosen_labels_changed = Signal(str)
@@ -88,6 +87,9 @@ class MainWindow(QMainWindow):
     blur_toggled = Signal(bool)
     blur_strength_changed = Signal(float)
     export_requested = Signal()
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}, size={self.size()}"
 
     def __init__(self) -> None:
         logger.info("Initializing UI (MainWindow)...")
@@ -161,7 +163,7 @@ class MainWindow(QMainWindow):
         self._build_status_bar()
         self._initialize_data_panels()
         self._connect_signals()
-        self._update_frame_item_action_state()
+        self._update_frame_box_action_state()
 
         logger.info("UI (MainWindow) initialized.")
 
@@ -188,7 +190,7 @@ class MainWindow(QMainWindow):
     def set_tracking_loading_state(self, is_loading: bool) -> None:
         self.right_control_panel.set_tracking_loading_state(is_loading)
 
-    def set_detection_model_items(self, items: list[DetectionModelItemViewModel]) -> None:
+    def set_detection_model_items(self, items: list[DetectionModelsViewModel]) -> None:
         self.right_control_panel.set_detection_model_items(items)
 
     def set_selected_detection_model(self, model_id: str) -> None:
@@ -210,7 +212,7 @@ class MainWindow(QMainWindow):
                 self.session_list.setCurrentItem(item)
                 break
 
-    def set_session_items(self, items: list[SessionListItemViewModel]) -> None:
+    def set_session_items(self, items: list[SessionFileListViewModel]) -> None:
         self.session_list.clear()
         for item_view_model in items:
             item = QListWidgetItem(item_view_model.title)
@@ -218,18 +220,18 @@ class MainWindow(QMainWindow):
             item.setData(Qt.ItemDataRole.UserRole, item_view_model.session_id)
             self.session_list.addItem(item)
 
-    def set_tracker_data_items(self, items: list[FrameDataItemViewModel]) -> None:
+    def set_tracker_data_items(self, items: list[FrameDataBoxViewModel]) -> None:
         self.frame_tracker_data_table.blockSignals(True)
         self.frame_tracker_data_table.setRowCount(len(items))
 
         for row_index, item in enumerate(items):
-            id_item = QTableWidgetItem(item.item_id)
-            id_item.setData(Qt.ItemDataRole.UserRole, item.item_key)
+            id_item = QTableWidgetItem(item.id)
+            id_item.setData(Qt.ItemDataRole.UserRole, item.key)
             self.frame_tracker_data_table.setItem(row_index, 0, id_item)
             self.frame_tracker_data_table.setItem(row_index, 1, QTableWidgetItem(item.source))
             self.frame_tracker_data_table.setItem(row_index, 2, QTableWidgetItem(item.label))
-            self.frame_tracker_data_table.setItem(row_index, 3, QTableWidgetItem(item.confidence_text))
-            self.frame_tracker_data_table.setItem(row_index, 4, QTableWidgetItem(item.bbox_text))
+            self.frame_tracker_data_table.setItem(row_index, 3, QTableWidgetItem(item.confidence_txt))
+            self.frame_tracker_data_table.setItem(row_index, 4, QTableWidgetItem(item.bbox_txt))
             self.frame_tracker_data_table.setItem(row_index, 5, QTableWidgetItem(item.color_hex))
 
         self.frame_tracker_data_table.blockSignals(False)
@@ -246,7 +248,7 @@ class MainWindow(QMainWindow):
     def get_frame_data_table(self) -> QTableWidget:
         return self.frame_detection_data_table
 
-    def get_selected_frame_item_keys(self) -> list[str]:
+    def get_selected_frame_box_keys(self) -> list[str]:
         table = self.get_active_frame_data_table()
         selection_model = table.selectionModel()
         if selection_model is None:
@@ -266,8 +268,8 @@ class MainWindow(QMainWindow):
 
         return selected_keys
 
-    def set_frame_data_items(self, items: list[FrameDataItemViewModel]) -> None:
-        selected_item_keys = set(self.get_selected_frame_item_keys())
+    def set_frame_data_items(self, items: list[FrameDataBoxViewModel]) -> None:
+        selected_item_keys = set(self.get_selected_frame_box_keys())
         had_focus = self.frame_detection_data_table.hasFocus()
 
         self.frame_detection_data_table.blockSignals(True)
@@ -276,17 +278,26 @@ class MainWindow(QMainWindow):
         rows_to_select: list[int] = []
 
         for row_index, item in enumerate(items):
-            id_item = QTableWidgetItem(item.item_id)
-            id_item.setData(Qt.ItemDataRole.UserRole, item.item_key)
+            id_item = QTableWidgetItem(item.id)
+            id_item.setData(Qt.ItemDataRole.UserRole, item.key)
+
+            # TODO: using an intermediate data structure help shorten the below lines
 
             self.frame_detection_data_table.setItem(row_index, 0, id_item)
             self.frame_detection_data_table.setItem(row_index, 1, QTableWidgetItem(item.source))
             self.frame_detection_data_table.setItem(row_index, 2, QTableWidgetItem(item.label))
-            self.frame_detection_data_table.setItem(row_index, 3, QTableWidgetItem(item.confidence_text))
-            self.frame_detection_data_table.setItem(row_index, 4, QTableWidgetItem(item.bbox_text))
+            self.frame_detection_data_table.setItem(row_index, 3, QTableWidgetItem(item.confidence_txt))
+            self.frame_detection_data_table.setItem(row_index, 4, QTableWidgetItem(item.bbox_txt))
             self.frame_detection_data_table.setItem(row_index, 5, QTableWidgetItem(item.color_hex))
 
-            if item.item_key in selected_item_keys:
+            #for col_index, attr in ((1, item.source),
+            #                        (2, item.label),
+            #                        (3, item.confidence_text),
+            #                        (4, item.bbox_text),
+            #                        (5, item.color_hex)):
+            #    self.frame_detection_data_table.setItem(row_index, col_index, QTableWidgetItem(item.__getattribute__(attr)))
+
+            if item.key in selected_item_keys:
                 rows_to_select.append(row_index)
 
         self.frame_detection_data_table.clearSelection()
@@ -302,7 +313,7 @@ class MainWindow(QMainWindow):
         if had_focus:
             self.frame_detection_data_table.setFocus()
 
-        self._update_frame_item_action_state()
+        self._update_frame_box_action_state()
 
     def set_frame_label_text(self, text: str) -> None:
         self.frame_label.setText(text)
@@ -480,17 +491,17 @@ class MainWindow(QMainWindow):
 
 
         # Action Row 1
-        for signal, slot in [(self.add_manual_button.clicked, self.add_manual_frame_item_requested.emit),
-                             (self.edit_item_button.clicked, self.edit_selected_frame_item_requested.emit),
-                             (self.delete_item_button.clicked, self.delete_selected_frame_item_requested.emit),
-                             (self.duplicate_item_button.clicked, self.duplicate_selected_frame_item_requested.emit),
+        for signal, slot in [(self.add_manual_button.clicked, self.add_manual_box_requested.emit),
+                             (self.edit_item_button.clicked, self.edit_selected_box_requested.emit),
+                             (self.delete_item_button.clicked, self.delete_selected_box_requested.emit),
+                             (self.duplicate_item_button.clicked, self.duplicate_selected_box_requested.emit),
                              (self.duplicate_to_prev_button.clicked, self.duplicate_to_prev_frame_requested.emit),
                              ]:
             signal.connect(slot)
 
         # Action Row 2
-        for signal, slot in [(self.reset_frame_button.clicked, self.reset_current_frame_review_requested.emit),
-                             (self.reset_all_button.clicked, self.reset_all_review_requested.emit),
+        for signal, slot in [(self.reset_frame_button.clicked, self.reset_current_detections_requested.emit),
+                             (self.reset_all_button.clicked, self.reset_all_detections_requested.emit),
                              (self.reset_tracker_frame_button.clicked, self.reset_tracker_frame_requested.emit),
                              (self.reset_all_trackers_button.clicked, self.reset_all_trackers_requested.emit),
                              (self.delete_next_occurrences_button.clicked, self.delete_next_occurrences_requested.emit),
@@ -502,19 +513,17 @@ class MainWindow(QMainWindow):
         detection_data_table = self.frame_detection_data_table
         tracker_data_table = self.frame_tracker_data_table
         for signal, slot in [(self.data_tab.currentChanged, self._on_tab_changed),
-                             (detection_data_table.itemSelectionChanged, self._update_frame_item_action_state),
-                             (tracker_data_table.itemSelectionChanged, self._update_frame_item_action_state),
-                             (detection_data_table.cellClicked, self._update_frame_item_action_state),
-                             (tracker_data_table.cellClicked, self._update_frame_item_action_state),
+                             (detection_data_table.itemSelectionChanged, self._update_frame_box_action_state),
+                             (tracker_data_table.itemSelectionChanged, self._update_frame_box_action_state),
+                             (detection_data_table.cellClicked, self._update_frame_box_action_state),
+                             (tracker_data_table.cellClicked, self._update_frame_box_action_state),
                              ]:
             signal.connect(slot)
 
         # --- BRIDGE SIGNALS FROM RIGHT PANEL ---
         right_panel = self.right_control_panel
-        for signal, slot in [(right_panel.detect_current_frame_requested,
-                              self.detect_current_frame_requested.emit),
-                             (right_panel.start_background_detection_requested,
-                              self.start_background_detection_requested.emit),
+        for signal, slot in [(right_panel.detect_current_frame_requested, self.detect_current_frame_requested.emit),
+                             (right_panel.start_background_detection_requested, self.start_detection_worker_requested.emit),
                              (right_panel.model_changed, self.model_changed.emit),
                              (right_panel.min_confidence_changed, self.min_confidence_changed.emit),
                              (right_panel.chosen_labels_changed, self.chosen_labels_changed.emit),
@@ -545,17 +554,26 @@ class MainWindow(QMainWindow):
             self.session_selected.emit(session_id)
 
     def _on_tab_changed(self, index: int):
-        self._update_frame_item_action_state()
+        self._update_frame_box_action_state()
         self.preview_container.set_tracker_actions_enabled(index == 1)
 
-    def _update_frame_item_action_state(self) -> None:
-        selected_count = len(self.get_selected_frame_item_keys())
-        self.edit_item_button.setEnabled(selected_count == 1)
-        self.delete_item_button.setEnabled(selected_count >= 1)
-        self.duplicate_item_button.setEnabled(selected_count >= 1)
-        self.duplicate_to_prev_button.setEnabled(selected_count >= 1)
-        self.delete_next_occurrences_button.setEnabled(selected_count >= 1)
-        self.delete_prev_occurrences_button.setEnabled(selected_count >= 1)
+    def _update_frame_box_action_state(self) -> None:
+        """
+        Updates the enabled state of frame item actions based on the number of selected items.
+        """
+        num_selected_items = len(self.get_selected_frame_box_keys())
+
+        only_one_selected = num_selected_items == 1
+        one_or_more_selected = num_selected_items >= 1
+
+        self.edit_item_button.setEnabled(only_one_selected)
+
+        for btn in (self.delete_item_button,
+                    self.duplicate_item_button,
+                    self.duplicate_to_prev_button,
+                    self.delete_next_occurrences_button,
+                    self.delete_prev_occurrences_button):
+            btn.setEnabled(one_or_more_selected)
 
     @staticmethod
     def __generate_qhbox_with_widgets(widgets: list[QWidget]) -> QHBoxLayout:

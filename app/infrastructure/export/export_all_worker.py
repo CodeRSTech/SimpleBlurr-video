@@ -69,7 +69,7 @@ class ExportAllWorker(QThread):
         active = app_coordinator._sm.get_session(session_id)
 
         # Detection
-        if not active.raw_frame_items_by_frame_index:
+        if not active.raw_frame_boxs_by_frame_index:
             logger.info("ExportAll: running detection for {}", session_id)
             try:
                 app_coordinator.start_background_detection(session_id)
@@ -81,7 +81,7 @@ class ExportAllWorker(QThread):
             app_coordinator.sync_detection_cache(session_id)
 
         # Tracking
-        if not active.tracked_frame_items_by_frame_index:
+        if not active.tracked_frame_boxs_by_frame_index:
             logger.info("ExportAll: running tracking for {}", session_id)
             app_coordinator.start_background_tracking(session_id)
             if active.has_tracking_worker():

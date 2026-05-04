@@ -11,10 +11,10 @@ from app.application.session_manager import SessionManager
 from app.application.services.tracking_service import TrackingService
 from app.domain.session import Session
 from app.domain.views import (
-    DetectionModelItemViewModel,
-    FramePresentationViewModel,
-    FrameItemViewModel,
-    SessionListItemViewModel,
+    DetectionModelsViewModel,
+    FrameBoxesViewModel,
+    FrameBoxViewModel,
+    SessionFileListViewModel,
     SessionSettingsViewModel,
 )
 from app.shared.logging_cfg import get_logger
@@ -28,6 +28,9 @@ class AppCoordinator:
     Owns all four services and the SessionManager.
     Contains zero business logic; every call is forwarded to the correct service.
     """
+
+    def __repr__(self):
+        return f"AppCoordinator"
 
     def __init__(self) -> None:
         logger.debug("Initializing AppCoordinator...")
@@ -58,7 +61,7 @@ class AppCoordinator:
         current_index = session.playback.current_frame_index
         return current_index, session.reader.read_frame(current_index)
 
-    def get_session_list_items(self) -> list[SessionListItemViewModel]:
+    def get_session_list_items(self) -> list[SessionFileListViewModel]:
         return self._sm.get_session_list_items()
 
     def get_active_status_text(self) -> str:
@@ -156,7 +159,7 @@ class AppCoordinator:
     def get_selected_detection_model_name(self, session_id: str) -> str:
         return self._detection.get_selected_detection_model_name(session_id)
 
-    def get_available_detection_models(self) -> list[DetectionModelItemViewModel]:
+    def get_available_detection_models(self) -> list[DetectionModelsViewModel]:
         return self._detection.get_available_detection_models()
 
     def set_detection_model(self, session_id: str, model_name: str, keep_manual:bool) -> None:
@@ -177,44 +180,44 @@ class AppCoordinator:
     def apply_filters_to_layer_b(self, session_id: str) -> None:
         self._detection.apply_filters_to_layer_b(session_id)
 
-    def get_detections_presentation(self, session_id: str) -> FramePresentationViewModel:
+    def get_detections_presentation(self, session_id: str) -> FrameBoxesViewModel:
         session = self._sm.get_session(session_id)
         if session.has_detection_worker():
             self._detection.sync_detection_cache(session_id)
         return self._annotation.get_frame_presentation(session_id)
 
-    def get_review_frame_item(
+    def get_review_frame_box(
         self, session_id: str, item_key: str
-    ) -> FrameItemViewModel | None:
-        return self._annotation.get_review_frame_item(session_id, item_key)
+    ) -> FrameBoxViewModel | None:
+        return self._annotation.get_review_frame_box(session_id, item_key)
 
-    def add_manual_frame_item(
+    def add_manual_frame_box(
         self, session_id: str, label: str, bbox_xyxy: tuple[int, int, int, int], color_hex: str = "#00ff00"
     ) -> None:
-        self._annotation.add_manual_frame_item(session_id, label, bbox_xyxy, color_hex)
+        self._annotation.add_manual_frame_box(session_id, label, bbox_xyxy, color_hex)
 
-    def update_manual_frame_item(
+    def update_manual_frame_box(
         self, session_id: str, item_key: str, label: str, bbox_xyxy: tuple[int, int, int, int]
     ) -> None:
-        self._annotation.update_manual_frame_item(session_id, item_key, label, bbox_xyxy)
+        self._annotation.update_manual_frame_box(session_id, item_key, label, bbox_xyxy)
 
-    def delete_frame_items(self, session_id: str, item_keys: Iterable[str]) -> None:
-        self._annotation.delete_frame_items(session_id, item_keys)
+    def delete_frame_boxs(self, session_id: str, item_keys: Iterable[str]) -> None:
+        self._annotation.delete_frame_boxs(session_id, item_keys)
 
-    def duplicate_frame_items_to_next_frame(
+    def duplicate_frame_boxs_to_next_frame(
         self, session_id: str, item_keys: Iterable[str]
     ) -> None:
-        self._annotation.duplicate_frame_items_to_next_frame(session_id, item_keys)
+        self._annotation.duplicate_frame_boxs_to_next_frame(session_id, item_keys)
 
-    def duplicate_frame_items_to_prev_frame(
+    def duplicate_frame_boxs_to_prev_frame(
         self, session_id: str, item_keys: Iterable[str]
     ) -> None:
-        self._annotation.duplicate_frame_items_to_prev_frame(session_id, item_keys)
+        self._annotation.duplicate_frame_boxs_to_prev_frame(session_id, item_keys)
 
-    def move_manual_frame_items(
+    def move_manual_frame_boxs(
         self, session_id: str, item_keys: Iterable[str], dx: int, dy: int
     ) -> int:
-        return self._annotation.move_manual_frame_items(session_id, item_keys, dx, dy)
+        return self._annotation.move_manual_frame_boxs(session_id, item_keys, dx, dy)
 
     def reset_review_frame(self, session_id: str, frame_index: int) -> None:
         self._annotation.reset_review_frame(session_id, frame_index)
@@ -233,31 +236,31 @@ class AppCoordinator:
     def sync_tracking_cache(self, session_id: str) -> None:
         self._tracking.sync_tracking_cache(session_id)
 
-    def get_trackers_presentation(self, session_id: str) -> FramePresentationViewModel:
+    def get_trackers_presentation(self, session_id: str) -> FrameBoxesViewModel:
         return self._tracking.get_final_presentation(session_id)
 
-    def get_final_frame_item(
+    def get_final_frame_box(
         self, session_id: str, item_key: str
-    ) -> FrameItemViewModel | None:
-        return self._tracking.get_final_frame_item(session_id, item_key)
+    ) -> FrameBoxViewModel | None:
+        return self._tracking.get_final_frame_box(session_id, item_key)
 
-    def delete_final_frame_items(self, session_id: str, item_keys: Iterable[str]) -> None:
-        self._tracking.delete_final_frame_items(session_id, item_keys)
+    def delete_final_frame_boxs(self, session_id: str, item_keys: Iterable[str]) -> None:
+        self._tracking.delete_final_frame_boxs(session_id, item_keys)
 
-    def duplicate_final_frame_items_to_next_frame(
+    def duplicate_final_frame_boxs_to_next_frame(
         self, session_id: str, item_keys: Iterable[str]
     ) -> None:
-        self._tracking.duplicate_final_frame_items_to_next_frame(session_id, item_keys)
+        self._tracking.duplicate_final_frame_boxs_to_next_frame(session_id, item_keys)
 
-    def duplicate_final_frame_items_to_prev_frame(
+    def duplicate_final_frame_boxs_to_prev_frame(
         self, session_id: str, item_keys: Iterable[str]
     ) -> None:
-        self._tracking.duplicate_final_frame_items_to_prev_frame(session_id, item_keys)
+        self._tracking.duplicate_final_frame_boxs_to_prev_frame(session_id, item_keys)
 
-    def move_final_frame_items(
+    def move_final_frame_boxs(
         self, session_id: str, item_keys: Iterable[str], dx: int, dy: int
     ) -> int:
-        return self._tracking.move_final_frame_items(session_id, item_keys, dx, dy)
+        return self._tracking.move_final_frame_boxs(session_id, item_keys, dx, dy)
 
     def reset_final_frame(self, session_id: str, frame_index: int) -> None:
         self._tracking.reset_final_frame(session_id, frame_index)

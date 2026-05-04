@@ -65,7 +65,7 @@ class TrackingHandler:
             return
         self._app_coordinator.update_session_settings(session_id, **{key: value})
         active = self._app_coordinator.get_active_session()
-        if active and active.tracked_frame_items_by_frame_index:
+        if active and active.tracked_frame_boxs_by_frame_index:
             self._window.set_tracking_config_warning_visible(True)
 
     def _on_tracking_finished(self, session_id: str, render_fn) -> None:

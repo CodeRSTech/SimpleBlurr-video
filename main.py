@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QApplication
 
 from app.application.coordinator import AppCoordinator
 from app.shared.logging_cfg import configure_logging
-from app.ui.controller import EditorController
+from app.ui.controller import Controller
 from app.ui.qt.main_win import MainWindow
 
 
@@ -24,7 +24,7 @@ def main() -> None:
     window = MainWindow()
 
     # 3. Wire them together via the Controller
-    controller = EditorController(app, window, app_coordinator)
+    controller = Controller(app, window, app_coordinator)
 
     window.show()
     sys.exit(app.exec())
