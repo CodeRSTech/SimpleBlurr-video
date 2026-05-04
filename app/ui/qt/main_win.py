@@ -25,10 +25,10 @@ from PySide6.QtWidgets import (
 )
 
 from app.domain.views import (
-    DetectionModelsViewModel,
-    FrameDataBoxViewModel,
+    DetectionModelSelectionViewModel,
+    BoundingBoxViewModel,
     SessionFileListViewModel,
-    SessionSettingsViewModel,
+    SessionSettingsViewModel, BoundingBoxViewModel,
 )
 from app.shared.logging_cfg import get_logger
 from app.ui.qt.right_panel import RightControlPanel
@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
     def set_tracking_loading_state(self, is_loading: bool) -> None:
         self.right_control_panel.set_tracking_loading_state(is_loading)
 
-    def set_detection_model_items(self, items: list[DetectionModelsViewModel]) -> None:
+    def set_detection_model_items(self, items: list[DetectionModelSelectionViewModel]) -> None:
         self.right_control_panel.set_detection_model_items(items)
 
     def set_selected_detection_model(self, model_id: str) -> None:
@@ -199,6 +199,17 @@ class MainWindow(QMainWindow):
     # --- Public API: Native MainWindow Elements ---
 
     def get_selected_session_id(self) -> str | None:
+        """
+        Retrieves the selected session ID from the session list.
+
+        This method fetches the session ID associated with the currently selected
+        item in the session list widget. If no item is selected, it returns None.
+        If the session ID retrieved is not a string, it also returns None.
+
+        Returns:
+            str | None: The session ID of the selected item if available and valid,
+            otherwise None.
+        """
         item = self.session_list.currentItem()
         if item is None:
             return None
@@ -220,21 +231,38 @@ class MainWindow(QMainWindow):
             item.setData(Qt.ItemDataRole.UserRole, item_view_model.session_id)
             self.session_list.addItem(item)
 
-    def set_tracker_data_items(self, items: list[FrameDataBoxViewModel]) -> None:
-        self.frame_tracker_data_table.blockSignals(True)
-        self.frame_tracker_data_table.setRowCount(len(items))
+    def set_tracker_data_items(self, boxes: list[BoundingBoxViewModel]) -> None:
+        """
+        Updates the tracker data table with the given list of bounding box models.
 
-        for row_index, item in enumerate(items):
-            id_item = QTableWidgetItem(item.id)
-            id_item.setData(Qt.ItemDataRole.UserRole, item.key)
-            self.frame_tracker_data_table.setItem(row_index, 0, id_item)
-            self.frame_tracker_data_table.setItem(row_index, 1, QTableWidgetItem(item.source))
-            self.frame_tracker_data_table.setItem(row_index, 2, QTableWidgetItem(item.label))
-            self.frame_tracker_data_table.setItem(row_index, 3, QTableWidgetItem(item.confidence_txt))
-            self.frame_tracker_data_table.setItem(row_index, 4, QTableWidgetItem(item.bbox_txt))
-            self.frame_tracker_data_table.setItem(row_index, 5, QTableWidgetItem(item.color_hex))
+        This method populates the table with data from each bounding box model,
+        clearing and resetting the table's rows to reflect the current state of the
+        bounding boxes.
 
-        self.frame_tracker_data_table.blockSignals(False)
+        Args:
+            boxes (list[BoundingBoxViewModel]): A list of bounding box view model
+                instances. Each view model includes attributes used to populate
+                the data table, such as id, source, label, confidence, bbox, and
+                color_hex.
+        """
+        data_table = self.frame_tracker_data_table
+
+        with QSignalBlocker(data_table):
+            data_table.setRowCount(len(boxes))
+
+            for row_index, box in enumerate(boxes):
+                box_id = QTableWidgetItem(box.id)
+                box_id.setData(Qt.ItemDataRole.UserRole, box.key)
+                data_table.setItem(row_index, 0, box_id)
+
+                for (col_index, attr) in [(1,'source'),
+                                          (2, 'label'),
+                                          (3, 'confidence_txt'),
+                                          (4, 'bbox_txt'),
+                                          (5,'color_hex')]:
+                    data_table.setItem(row_index,
+                                       col_index,
+                                       QTableWidgetItem(box.__getattribute__(attr)))
 
     def get_active_tab_index(self) -> int:
         tab_widget_idx = self.data_tab.currentIndex()
@@ -268,50 +296,48 @@ class MainWindow(QMainWindow):
 
         return selected_keys
 
-    def set_frame_data_items(self, items: list[FrameDataBoxViewModel]) -> None:
-        selected_item_keys = set(self.get_selected_frame_box_keys())
-        had_focus = self.frame_detection_data_table.hasFocus()
+    def set_frame_data_items(self, boxes: list[BoundingBoxViewModel]) -> None:
+        """
+        Updates the frame detection data table with the provided bounding boxes.
+        """
+        selected_box_keys = set(self.get_selected_frame_box_keys())
+        data_table = self.frame_detection_data_table
+        had_focus = data_table.hasFocus()
 
-        self.frame_detection_data_table.blockSignals(True)
-        self.frame_detection_data_table.setRowCount(len(items))
+        with QSignalBlocker(data_table):
+            data_table.setRowCount(len(boxes))
 
-        rows_to_select: list[int] = []
+            rows_to_select: list[int] = []
 
-        for row_index, item in enumerate(items):
-            id_item = QTableWidgetItem(item.id)
-            id_item.setData(Qt.ItemDataRole.UserRole, item.key)
+            for row_idx, item in enumerate(boxes):
+                box_id = QTableWidgetItem(item.id)
+                box_id.setData(Qt.ItemDataRole.UserRole, item.key)
 
-            # TODO: using an intermediate data structure help shorten the below lines
+                data_table.setItem(row_idx, 0, box_id)
 
-            self.frame_detection_data_table.setItem(row_index, 0, id_item)
-            self.frame_detection_data_table.setItem(row_index, 1, QTableWidgetItem(item.source))
-            self.frame_detection_data_table.setItem(row_index, 2, QTableWidgetItem(item.label))
-            self.frame_detection_data_table.setItem(row_index, 3, QTableWidgetItem(item.confidence_txt))
-            self.frame_detection_data_table.setItem(row_index, 4, QTableWidgetItem(item.bbox_txt))
-            self.frame_detection_data_table.setItem(row_index, 5, QTableWidgetItem(item.color_hex))
+                for col_idx, attr in [(1, 'source'),
+                                      (2, 'label'),
+                                      (3, 'confidence_txt'),
+                                      (4, 'bbox_txt'),
+                                      (5, 'color_hex')]:
 
-            #for col_index, attr in ((1, item.source),
-            #                        (2, item.label),
-            #                        (3, item.confidence_text),
-            #                        (4, item.bbox_text),
-            #                        (5, item.color_hex)):
-            #    self.frame_detection_data_table.setItem(row_index, col_index, QTableWidgetItem(item.__getattribute__(attr)))
+                    data_table.setItem(row_idx,
+                                       col_idx,
+                                       QTableWidgetItem(item.__getattribute__(attr)))
 
-            if item.key in selected_item_keys:
-                rows_to_select.append(row_index)
+                if item.key in selected_box_keys:
+                    rows_to_select.append(row_idx)
 
-        self.frame_detection_data_table.clearSelection()
+            data_table.clearSelection()
 
-        for row_index in rows_to_select:
-            self.frame_detection_data_table.selectRow(row_index)
+            for row_idx in rows_to_select:
+                data_table.selectRow(row_idx)
 
-        if rows_to_select:
-            self.frame_detection_data_table.setCurrentCell(rows_to_select[0], 0)
-
-        self.frame_detection_data_table.blockSignals(False)
+            if rows_to_select:
+                data_table.setCurrentCell(rows_to_select[0], 0)
 
         if had_focus:
-            self.frame_detection_data_table.setFocus()
+            data_table.setFocus()
 
         self._update_frame_box_action_state()
 

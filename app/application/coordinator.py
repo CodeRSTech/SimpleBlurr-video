@@ -11,18 +11,18 @@ from app.application.session_manager import SessionManager
 from app.application.services.tracking_service import TrackingService
 from app.domain.session import Session
 from app.domain.views import (
-    DetectionModelsViewModel,
+    DetectionModelSelectionViewModel,
     FrameBoxesViewModel,
-    FrameBoxViewModel,
+    BoundingBoxViewModel,
     SessionFileListViewModel,
     SessionSettingsViewModel,
 )
 from app.shared.logging_cfg import get_logger
 
-logger = get_logger("Application->AppCoordinator")
+logger = get_logger("Application->Coordinator")
 
 
-class AppCoordinator:
+class Coordinator:
     """
     Thin delegation layer — the only application-layer class the UI imports.
     Owns all four services and the SessionManager.
@@ -30,16 +30,16 @@ class AppCoordinator:
     """
 
     def __repr__(self):
-        return f"AppCoordinator"
+        return f"Coordinator"
 
     def __init__(self) -> None:
-        logger.debug("Initializing AppCoordinator...")
+        logger.debug("Initializing Coordinator...")
         self._sm = SessionManager()
         self._detection = DetectionService(self._sm)
         self._annotation = AnnotationService(self._sm)
         self._tracking = TrackingService(self._sm)
         self._export = ExportService(self._sm)
-        logger.debug("AppCoordinator initialized.")
+        logger.debug("Coordinator initialized.")
 
     def get_export_service(self) -> ExportService:
         return self._export
@@ -73,7 +73,9 @@ class AppCoordinator:
     def close(self) -> None:
         self._sm.close_all()
 
-    def load_frame(self, session_id: str, frame_index: int, is_next_frame: bool = False):
+    def load_frame(
+        self, session_id: str, frame_index: int, is_next_frame: bool = False
+    ):
         session = self._sm.get_session(session_id)
         max_idx = max(session.metadata.frame_count - 1, 0)
         safe_idx = max(0, min(frame_index, max_idx))
@@ -131,6 +133,7 @@ class AppCoordinator:
         return session
 
     def get_session_settings(self, session_id: str) -> SessionSettingsViewModel:
+        # TODO: session should return a `SessionSettingsViewModel` directly.
         s = self._sm.get_session(session_id).settings
         return SessionSettingsViewModel(
             detection_model_name=s.detection_model_name,
@@ -159,10 +162,12 @@ class AppCoordinator:
     def get_selected_detection_model_name(self, session_id: str) -> str:
         return self._detection.get_selected_detection_model_name(session_id)
 
-    def get_available_detection_models(self) -> list[DetectionModelsViewModel]:
+    def get_available_detection_models(self) -> list[DetectionModelSelectionViewModel]:
         return self._detection.get_available_detection_models()
 
-    def set_detection_model(self, session_id: str, model_name: str, keep_manual:bool) -> None:
+    def set_detection_model(
+        self, session_id: str, model_name: str, keep_manual: bool
+    ) -> None:
         self._detection.set_detection_model(session_id, model_name, keep_manual)
 
     def detect_current_frame(self, session_id: str) -> None:
@@ -188,16 +193,24 @@ class AppCoordinator:
 
     def get_review_frame_box(
         self, session_id: str, item_key: str
-    ) -> FrameBoxViewModel | None:
-        return self._annotation.get_review_frame_box(session_id, item_key)
+    ) -> BoundingBoxViewModel | None:
+        return self._annotation.get_review_box(session_id, item_key)
 
     def add_manual_frame_box(
-        self, session_id: str, label: str, bbox_xyxy: tuple[int, int, int, int], color_hex: str = "#00ff00"
+        self,
+        session_id: str,
+        label: str,
+        bbox_xyxy: tuple[int, int, int, int],
+        color_hex: str = "#00ff00",
     ) -> None:
         self._annotation.add_manual_frame_box(session_id, label, bbox_xyxy, color_hex)
 
     def update_manual_frame_box(
-        self, session_id: str, item_key: str, label: str, bbox_xyxy: tuple[int, int, int, int]
+        self,
+        session_id: str,
+        item_key: str,
+        label: str,
+        bbox_xyxy: tuple[int, int, int, int],
     ) -> None:
         self._annotation.update_manual_frame_box(session_id, item_key, label, bbox_xyxy)
 
@@ -225,7 +238,9 @@ class AppCoordinator:
     def reset_all_review_frames(self, session_id: str) -> None:
         self._annotation.reset_all_review_frames(session_id)
 
-    def start_background_tracking(self, session_id: str, strategy: str, source: str) -> None:
+    def start_background_tracking(
+        self, session_id: str, strategy: str, source: str
+    ) -> None:
         self._detection.sync_detection_cache(session_id)
 
         try:
@@ -241,10 +256,12 @@ class AppCoordinator:
 
     def get_final_frame_box(
         self, session_id: str, item_key: str
-    ) -> FrameBoxViewModel | None:
+    ) -> BoundingBoxViewModel | None:
         return self._tracking.get_final_frame_box(session_id, item_key)
 
-    def delete_final_frame_boxs(self, session_id: str, item_keys: Iterable[str]) -> None:
+    def delete_final_frame_boxs(
+        self, session_id: str, item_keys: Iterable[str]
+    ) -> None:
         self._tracking.delete_final_frame_boxs(session_id, item_keys)
 
     def duplicate_final_frame_boxs_to_next_frame(

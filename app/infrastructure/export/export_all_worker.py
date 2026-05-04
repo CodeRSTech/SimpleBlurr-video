@@ -22,7 +22,7 @@ class ExportAllWorker(QThread):
 
     def __init__(
         self,
-        app_coordinator,            # EditorFacade — no circular import
+        coordinator,            # EditorFacade — no circular import
         session_ids: list[str],
         output_dir: str,
         prefix: str,
@@ -30,7 +30,7 @@ class ExportAllWorker(QThread):
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self._app_coordinator = app_coordinator
+        self._coordinator = coordinator
         self._session_ids = session_ids
         self._output_dir = output_dir
         self._prefix = prefix
@@ -65,31 +65,31 @@ class ExportAllWorker(QThread):
         logger.info("ExportAllWorker finished")
 
     def _process_session(self, session_id: str) -> None:
-        app_coordinator = self._app_coordinator
-        active = app_coordinator._sm.get_session(session_id)
+        coordinator = self._coordinator
+        active = coordinator._sm.get_session(session_id)
 
         # Detection
-        if not active.raw_frame_boxs_by_frame_index:
+        if not active.raw_frame_boxes_by_frame_index:
             logger.info("ExportAll: running detection for {}", session_id)
             try:
-                app_coordinator.start_background_detection(session_id)
+                coordinator.start_background_detection(session_id)
             except ValueError:
                 logger.opt(exception=True).error("Failed to start background detection")
                 return
             if active.has_detection_worker():
                 active.detection_worker.wait()
-            app_coordinator.sync_detection_cache(session_id)
+            coordinator.sync_detection_cache(session_id)
 
         # Tracking
-        if not active.tracked_frame_boxs_by_frame_index:
+        if not active.tracked_frame_boxes_by_frame_index:
             logger.info("ExportAll: running tracking for {}", session_id)
-            app_coordinator.start_background_tracking(session_id)
+            coordinator.start_background_tracking(session_id)
             if active.has_tracking_worker():
                 active.tracking_worker.wait()
-            app_coordinator.sync_tracking_cache(session_id)
+            coordinator.sync_tracking_cache(session_id)
 
         # Export
-        if not app_coordinator.session_is_ready_for_export(session_id):
+        if not coordinator.session_is_ready_for_export(session_id):
             raise RuntimeError(f"Session {session_id} has no Layer D data to export.")
 
         basename = os.path.splitext(os.path.basename(session_id))[0]
@@ -97,4 +97,4 @@ class ExportAllWorker(QThread):
         output_path = os.path.join(self._output_dir, filename)
 
         logger.info("ExportAll: exporting {} → {}", session_id, output_path)
-        app_coordinator.export_session(session_id, output_path)
+        coordinator.export_session(session_id, output_path)

@@ -2,7 +2,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from app.application.coordinator import AppCoordinator
+from app.application.coordinator import Coordinator
 from app.shared.logging_cfg import configure_logging
 from app.ui.controller import Controller
 from app.ui.qt.main_win import MainWindow
@@ -18,7 +18,7 @@ def main() -> None:
     app = QApplication(sys.argv)
 
     # 1. Instantiate the new Application layer app_coordinator
-    app_coordinator = AppCoordinator()
+    app_coordinator = Coordinator()
 
     # 2. Instantiate the UI
     window = MainWindow()

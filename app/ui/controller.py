@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import re
 from PySide6.QtCore import QTimer, QThread
 from PySide6.QtWidgets import QApplication
 
-from app.application.coordinator import AppCoordinator
+from app.application.coordinator import Coordinator
 from app.shared import draw_frame_overlays, bgr_frame_to_qimage, get_logger
 from app.ui.qt import MainWindow
 from app.ui.handlers import (
@@ -30,10 +29,10 @@ class Controller:
             self,
             app: QApplication,
             window: MainWindow,
-            app_coordinator: AppCoordinator, ) -> None:
+            coordinator: Coordinator, ) -> None:
         self._app = app
         self._window = window
-        self._app_coordinator = app_coordinator
+        self._coordinator = coordinator
         self._playback_timer = QTimer()
         self._playback_timer.setSingleShot(False)
 
@@ -42,12 +41,12 @@ class Controller:
         self._model_load_worker: ModelLoadWorker | None = None
 
         # Instantiate Handlers
-        self._session_handler = SessionHandler(window, app_coordinator)
-        self._detection_handler = DetectionHandler(window, app_coordinator)
-        self._tracking_handler = TrackingHandler(window, app_coordinator)
-        self._annotation_handler = AnnotationHandler(window, app_coordinator)
-        self._playback_handler = PlaybackHandler(window, app_coordinator, self._render_saved_frame)
-        self._export_handler = ExportHandler(window, app_coordinator)
+        self._session_handler = SessionHandler(window, coordinator)
+        self._detection_handler = DetectionHandler(window, coordinator)
+        self._tracking_handler = TrackingHandler(window, coordinator)
+        self._annotation_handler = AnnotationHandler(window, coordinator)
+        self._playback_handler = PlaybackHandler(window, coordinator, self._render_saved_frame)
+        self._export_handler = ExportHandler(window, coordinator)
 
         self._frame_table_key_filter = FrameTableKeyFilter(self._annotation_handler, self._render_saved_frame)
         self._window.get_frame_data_table().installEventFilter(self._frame_table_key_filter)
@@ -56,7 +55,7 @@ class Controller:
         self._connect_signals()
 
         # Init model combobox
-        self._window.set_detection_model_items(self._app_coordinator.get_available_detection_models())
+        self._window.set_detection_model_items(self._coordinator.get_available_detection_models())
         self._window.set_selected_detection_model("None")
 
     def _connect_signals(self) -> None:
@@ -92,42 +91,40 @@ class Controller:
     def _render_saved_frame(self, session_id: str) -> None:
         # Local references to the UI components and handlers to shorten code
         window = self._window
-        app_coordinator = self._app_coordinator
+        coordinator = self._coordinator
 
         # Get index, frame and frame count
-        idx, frame = app_coordinator.get_current_frame(session_id)
-        frame_count = app_coordinator.get_session_frame_count(session_id)
+        idx, frame = coordinator.get_current_frame(session_id)
+        frame_count = coordinator.get_session_frame_count(session_id)
 
         # Render frame
         self._render_frame(session_id, frame)
 
         # Set UI state
-        window.set_status_text(self._app_coordinator.get_active_status_text())
+        window.set_status_text(self._coordinator.get_active_status_text())
         window.set_seek_range(max(frame_count - 1, 0))
         window.set_seek_value(idx)
-        window.set_frame_label_text(self._app_coordinator.get_session_frame_label(session_id))
+        window.set_frame_label_text(self._coordinator.get_session_frame_label(session_id))
 
     def _render_frame(self, session_id: str, frame) -> None:
         window = self._window
-        app_coordinator = self._app_coordinator
+        coordinator = self._coordinator
         tab_idx = window.get_active_tab_index()
 
-        detections_data = app_coordinator.get_detections_presentation(session_id)
-        trackers_data = app_coordinator.get_trackers_presentation(session_id)
+        detections_data = coordinator.get_detections_presentation(session_id)
+        trackers_data = coordinator.get_trackers_presentation(session_id)
 
         display_data = detections_data if tab_idx == 0 else trackers_data
 
         items_to_draw = []
-        if app_coordinator.draw_boxes_enabled(session_id):
+        if coordinator.draw_boxes_enabled(session_id):
             items_to_draw = display_data.frame_data_boxes
 
         # Pass active boxes to the new container
-        active_bboxes = {}
-        for item in display_data.frame_data_boxes:
-            match = re.match(r"\((-?\d+),(-?\d+)\)-\((-?\d+),(-?\d+)\)", item.bbox_txt)
-            if match:
-                active_bboxes[item.key] = tuple(map(int, match.groups()))
-
+        active_bboxes = {
+            item.key: item.bbox_xyxy
+            for item in display_data.frame_data_boxes
+        }
         self._window.preview_container.set_active_bboxes(active_bboxes)
 
         frame_out = draw_frame_overlays(frame, items_to_draw)
@@ -137,10 +134,10 @@ class Controller:
 
     def _stop_playback(self) -> None:
         self._playback_timer.stop()
-        self._app_coordinator.stop_all_playback()
-        active = self._app_coordinator.get_active_session()
+        self._coordinator.stop_all_playback()
+        active = self._coordinator.get_active_session()
         if active:
-            self._window.set_status_text(self._app_coordinator.get_active_status_text())
+            self._window.set_status_text(self._coordinator.get_active_status_text())
 
     def _start_model_load(self, session_id: str, model_name: str, keep_manual: bool = True) -> None:
         try:
@@ -151,7 +148,7 @@ class Controller:
             logger.debug("Model load thread not initialized. Creating new thread...")
 
         self._model_load_thread = QThread()
-        self._model_load_worker = ModelLoadWorker(self._app_coordinator, session_id, model_name)
+        self._model_load_worker = ModelLoadWorker(self._coordinator, session_id, model_name)
 
         # Create local references to the UI components and worker to shorten code
         window = self._window
@@ -169,16 +166,16 @@ class Controller:
 
     def _on_model_load_finished(self, session_id: str, model_name: str) -> None:
         logger.debug("Model load finished for session {} with model {}", session_id, model_name)
-        self._window.set_status_text(self._app_coordinator.get_active_status_text())
+        self._window.set_status_text(self._coordinator.get_active_status_text())
         self._window.set_frame_data_items([])
         self._render_saved_frame(session_id)
 
     def _on_model_load_failed(self, session_id: str, model_name: str, err: str) -> None:
         logger.error("Model load failed for session {} with model {}: {}", session_id, model_name, err)
         self._window.show_error("Model Load Failed", err)
-        active = self._app_coordinator.get_active_session()
+        active = self._coordinator.get_active_session()
         if active:
-            self._window.set_status_text(self._app_coordinator.get_active_status_text())
+            self._window.set_status_text(self._coordinator.get_active_status_text())
 
     def _cleanup_model_load(self) -> None:
         self._window.set_detection_loading_state(False)
@@ -191,7 +188,7 @@ class Controller:
 
     def _on_about_to_quit(self) -> None:
         self._stop_playback()
-        self._app_coordinator.close()
+        self._coordinator.close()
         try:
             if self._model_load_thread.isRunning():
                 self._model_load_thread.quit()
@@ -201,14 +198,12 @@ class Controller:
 
     # --- Container Handlers ---
 
-    
     def _on_preview_bbox_drawn(self, x1, y1, x2, y2):
         logger.debug("Preview bbox drawn: ({}, {}), ({}, {})", x1, y1, x2, y2)
         sid = self._window.get_selected_session_id()
         if sid:
             logger.debug("Session {}: Calling Annotation Handler to handle drawn bbox...", sid)
             self._annotation_handler.handle_new_drawn_box(sid, x1, y1, x2, y2, self._render_saved_frame)
-
     
     def _on_preview_bbox_edited(self, item_key, x1, y1, x2, y2):
         logger.debug("Preview bbox edited ({}, {}, {}, {})", x1, y1, x2, y2)
@@ -218,7 +213,6 @@ class Controller:
             self._annotation_handler.handle_existing_box_edit(sid, item_key, self._render_saved_frame,
                                                               (x1, y1, x2, y2))
 
-    
     def _on_preview_bbox_deleted(self, item_key):
         logger.debug("Preview box deleted: {})", item_key)
         sid = self._window.get_selected_session_id()
@@ -227,12 +221,11 @@ class Controller:
             logger.debug("Deleting the box from the active tab {}", tab)
 
             if tab == 1:
-                self._app_coordinator.delete_final_frame_boxs(sid, [item_key])
+                self._coordinator.delete_final_frame_boxs(sid, [item_key])
             else:
-                self._app_coordinator.delete_frame_boxs(sid, [item_key])
+                self._coordinator.delete_frame_boxs(sid, [item_key])
             self._render_saved_frame(sid)
 
-    
     def _on_preview_context_action(self, action: str, item_key: str):
         logger.debug("Preview box context action: {}, {}", action, item_key)
         sid = self._window.get_selected_session_id()
@@ -241,21 +234,21 @@ class Controller:
         # Route the context menu actions directly to the existing backend logic!
         if action == "duplicate_next":
             if self._window.get_active_tab_index() == 1:
-                self._app_coordinator.duplicate_final_frame_boxs_to_next_frame(sid, [item_key])
+                self._coordinator.duplicate_final_frame_boxs_to_next_frame(sid, [item_key])
             else:
-                self._app_coordinator.duplicate_frame_boxs_to_next_frame(sid, [item_key])
+                self._coordinator.duplicate_frame_boxs_to_next_frame(sid, [item_key])
         elif action == "duplicate_prev":
             if self._window.get_active_tab_index() == 1:
-                self._app_coordinator.duplicate_final_frame_boxs_to_prev_frame(sid, [item_key])
+                self._coordinator.duplicate_final_frame_boxs_to_prev_frame(sid, [item_key])
             else:
-                self._app_coordinator.duplicate_frame_boxs_to_prev_frame(sid, [item_key])
+                self._coordinator.duplicate_frame_boxs_to_prev_frame(sid, [item_key])
         elif action == "delete_next":
             # Extract underlying item_id from item_key (e.g. "track:123" -> "123")
-            item_id = self._app_coordinator.get_final_frame_box(sid, item_key).id
-            self._app_coordinator.delete_next_occurrences(sid, item_id)
+            item_id = self._coordinator.get_final_frame_box(sid, item_key).id
+            self._coordinator.delete_next_occurrences(sid, item_id)
         elif action == "delete_prev":
-            item_id = self._app_coordinator.get_final_frame_box(sid, item_key).id
-            self._app_coordinator.delete_prev_occurrences(sid, item_id)
+            item_id = self._coordinator.get_final_frame_box(sid, item_key).id
+            self._coordinator.delete_prev_occurrences(sid, item_id)
 
         self._render_saved_frame(sid)
 

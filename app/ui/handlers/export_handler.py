@@ -4,7 +4,7 @@ import os
 
 from PySide6.QtWidgets import QFileDialog
 
-from app.application.coordinator import AppCoordinator
+from app.application.coordinator import Coordinator
 from app.infrastructure.export.export_all_worker import ExportAllWorker
 from app.infrastructure.export.export_worker import ExportWorker
 from app.shared.logging_cfg import get_logger
@@ -14,38 +14,38 @@ logger = get_logger("UI->ExportHandler")
 
 
 class ExportHandler:
-    def __init__(self, window, app_coordinator: AppCoordinator) -> None:
+    def __init__(self, window, coordinator: Coordinator) -> None:
         self._window = window
-        self._app_coordinator = app_coordinator
+        self._coordinator = coordinator
         self._export_worker: ExportWorker | None = None
         self._export_all_worker: ExportAllWorker | None = None
 
     def on_draw_boxes_changed(self, enabled: bool, render_fn) -> None:
         session_id = self._window.get_selected_session_id()
         if session_id:
-            self._app_coordinator.update_session_settings(session_id, draw_boxes=enabled)
+            self._coordinator.update_session_settings(session_id, draw_boxes=enabled)
             render_fn(session_id)
 
     def on_blur_toggled(self, enabled: bool, render_fn) -> None:
         self._window.set_blur_strength_visible(enabled)
         session_id = self._window.get_selected_session_id()
         if session_id:
-            self._app_coordinator.update_session_settings(session_id, blur_enabled=enabled)
+            self._coordinator.update_session_settings(session_id, blur_enabled=enabled)
             render_fn(session_id)
 
     def on_blur_strength_changed(self, value: float, render_fn) -> None:
         session_id = self._window.get_selected_session_id()
         if session_id:
-            self._app_coordinator.update_session_settings(session_id, blur_strength=value)
+            self._coordinator.update_session_settings(session_id, blur_strength=value)
             render_fn(session_id)
 
     def on_export(self) -> None:
-        app_coordinator = self._app_coordinator
+        coordinator = self._coordinator
         session_id = self._window.get_selected_session_id()
         if not session_id:
             return
 
-        if not self._app_coordinator.session_is_ready_for_export(session_id):
+        if not self._coordinator.session_is_ready_for_export(session_id):
             self._window.show_error("Export Failed", "No tracking results to export. Run detection and tracking first.")
             return
 
@@ -60,13 +60,13 @@ class ExportHandler:
         self._window.set_status_text("Exporting video...")
         self._window.set_export_enabled(False)
 
-        self._export_worker = ExportWorker(app_coordinator.get_export_service(), session_id, output_path)
+        self._export_worker = ExportWorker(coordinator.get_export_service(), session_id, output_path)
         self._export_worker.finished_processing.connect(self._on_export_finished)
         self._export_worker.error_occurred.connect(self._on_export_failed)
         self._export_worker.start()
 
     def on_export_all(self) -> None:
-        session_ids = self._app_coordinator.all_session_ids()
+        session_ids = self._coordinator.all_session_ids()
         if not session_ids:
             self._window.show_error("Export All", "No videos are open.")
             return
@@ -79,7 +79,7 @@ class ExportHandler:
         self._window.set_status_text(f"Batch exporting {len(session_ids)} video(s)...")
         self._window.export_all_button.setEnabled(False)
 
-        self._export_all_worker = ExportAllWorker(self._app_coordinator, session_ids, out_dir, prefix, suffix)
+        self._export_all_worker = ExportAllWorker(self._coordinator, session_ids, out_dir, prefix, suffix)
         self._export_all_worker.session_started.connect(
             lambda sid: self._window.set_status_text(f"Exporting: {os.path.basename(sid)}...")
         )

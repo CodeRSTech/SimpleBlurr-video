@@ -9,7 +9,7 @@ from app.infrastructure.detection.detect_models import get_available_detection_m
 from app.infrastructure.detection.detect_worker import DetectionWorker
 from app.infrastructure.detection.frame_parser import FrameParser
 from app.domain.data.detection import DetectionResult
-from app.domain.views import DetectionModelsViewModel, FrameBoxViewModel
+from app.domain.views import DetectionModelSelectionViewModel, BoundingBoxViewModel
 from app.shared.logging_cfg import get_logger
 
 logger = get_logger("Application->DetectionService")
@@ -33,9 +33,9 @@ class DetectionService:
         return self._sm.get_session(session_id).settings.detection_model_name
 
     @staticmethod
-    def get_available_detection_models() -> list[DetectionModelsViewModel]:
+    def get_available_detection_models() -> list[DetectionModelSelectionViewModel]:
         return [
-            DetectionModelsViewModel(model_id=n, display_name=n)
+            DetectionModelSelectionViewModel(model_id=n, display_name=n)
             for n in get_available_detection_model_names()
         ]
 
@@ -70,8 +70,8 @@ class DetectionService:
         model_name = session.settings.detection_model_name
 
         if model_name == "None":
-            session.raw_frame_boxs_by_frame_index.pop(frame_index, None)
-            session.review_frame_boxs_by_frame_index.pop(frame_index, None)
+            session.raw_frame_boxes_by_frame_index.pop(frame_index, None)
+            session.review_frame_boxes_by_frame_index.pop(frame_index, None)
             logger.info("Detect current frame skipped: model is None")
             return
 
@@ -83,10 +83,10 @@ class DetectionService:
         raw_items = self._map_detections_to_review_items(raw_detections)
         filtered = [i for i in raw_items if self._passes_filter(i, session.settings)]
 
-        session.raw_frame_boxs_by_frame_index[frame_index] = filtered
+        session.raw_frame_boxes_by_frame_index[frame_index] = filtered
 
         # Copy onto Layer B
-        session.review_frame_boxs_by_frame_index[frame_index] = copy.deepcopy(filtered)
+        session.review_frame_boxes_by_frame_index[frame_index] = copy.deepcopy(filtered)
         logger.info(
             "Detected {} item(s) (after filter) for session {} frame {}",
             len(filtered), session_id, frame_index,
@@ -118,17 +118,17 @@ class DetectionService:
 
         worker_cache = session.detection_worker.get_all_detections()
         for frame_index, raw_detections in worker_cache.items():
-            if frame_index in session.raw_frame_boxs_by_frame_index:
+            if frame_index in session.raw_frame_boxes_by_frame_index:
                 continue
 
             raw_items = self._map_detections_to_review_items(raw_detections)
             filtered = [i for i in raw_items if self._passes_filter(i, session.settings)]
 
             # 1. Save to Layer A
-            session.raw_frame_boxs_by_frame_index[frame_index] = filtered
+            session.raw_frame_boxes_by_frame_index[frame_index] = filtered
 
             # 2. NEW: Immediately seed Layer B so tracking has data
-            session.review_frame_boxs_by_frame_index[frame_index] = copy.deepcopy(filtered)
+            session.review_frame_boxes_by_frame_index[frame_index] = copy.deepcopy(filtered)
 
     def apply_filters_to_layer_b(self, session_id: str) -> None:
         session = self._sm.get_session(session_id)
@@ -136,8 +136,8 @@ class DetectionService:
         changed_frames = 0
 
         # We must iterate over Layer A so we can "bring back" boxes if the threshold is lowered
-        for frame_index, raw_items in session.raw_frame_boxs_by_frame_index.items():
-            current_layer_b = session.review_frame_boxs_by_frame_index.get(frame_index, [])
+        for frame_index, raw_items in session.raw_frame_boxes_by_frame_index.items():
+            current_layer_b = session.review_frame_boxes_by_frame_index.get(frame_index, [])
 
             # Preserve any manual annotations the user added
             manual_items = [i for i in current_layer_b if i.source != "Detection"]
@@ -149,7 +149,7 @@ class DetectionService:
             new_layer_b = manual_items + copy.deepcopy(filtered_detections)
 
             if len(new_layer_b) != len(current_layer_b):
-                session.review_frame_boxs_by_frame_index[frame_index] = new_layer_b
+                session.review_frame_boxes_by_frame_index[frame_index] = new_layer_b
                 changed_frames += 1
 
         logger.info(
@@ -158,7 +158,7 @@ class DetectionService:
         )
 
     @staticmethod
-    def _passes_filter(item: FrameBoxViewModel, settings: ProcessingSettings) -> bool:
+    def _passes_filter(item: BoundingBoxViewModel, settings: ProcessingSettings) -> bool:
         """
         Determines if a detection item passes the filter criteria based on confidence and label settings.
         """
@@ -175,7 +175,7 @@ class DetectionService:
         return True
 
     @staticmethod
-    def _map_detections_to_review_items(detections: list[DetectionResult], ) -> list[FrameBoxViewModel]:
+    def _map_detections_to_review_items(detections: list[DetectionResult], ) -> list[BoundingBoxViewModel]:
         return [ d.to_frame_box_view_model() for d in detections ]
 
     @staticmethod
@@ -186,25 +186,25 @@ class DetectionService:
         """
         # Layer A (Raw detections) and Layer C (Raw tracks) are ALWAYS wiped
         # because they are strictly machine-generated.
-        session.raw_frame_boxs_by_frame_index.clear()
-        session.tracked_frame_boxs_by_frame_index.clear()
+        session.raw_frame_boxes_by_frame_index.clear()
+        session.tracked_frame_boxes_by_frame_index.clear()
 
         if keep_manual:
             # Filter Layer B (Review)
-            for frame_idx, items in list(session.review_frame_boxs_by_frame_index.items()):
+            for frame_idx, items in list(session.review_frame_boxes_by_frame_index.items()):
                 manual_items = [i for i in items if i.source == "Manual"]
                 if manual_items:
-                    session.review_frame_boxs_by_frame_index[frame_idx] = manual_items
+                    session.review_frame_boxes_by_frame_index[frame_idx] = manual_items
                 else:
-                    del session.review_frame_boxs_by_frame_index[frame_idx]
+                    del session.review_frame_boxes_by_frame_index[frame_idx]
 
             # Filter Layer D (Final Timeline)
-            for frame_idx, items in list(session.final_frame_boxs_by_frame_index.items()):
+            for frame_idx, items in list(session.final_frame_boxes_by_frame_index.items()):
                 manual_items = [i for i in items if i.source == "Manual"]
                 if manual_items:
-                    session.final_frame_boxs_by_frame_index[frame_idx] = manual_items
+                    session.final_frame_boxes_by_frame_index[frame_idx] = manual_items
                 else:
-                    del session.final_frame_boxs_by_frame_index[frame_idx]
+                    del session.final_frame_boxes_by_frame_index[frame_idx]
         else:
-            session.review_frame_boxs_by_frame_index.clear()
-            session.final_frame_boxs_by_frame_index.clear()
+            session.review_frame_boxes_by_frame_index.clear()
+            session.final_frame_boxes_by_frame_index.clear()

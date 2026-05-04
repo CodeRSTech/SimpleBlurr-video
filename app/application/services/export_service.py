@@ -26,7 +26,7 @@ class ExportService:
 
     def session_is_ready_for_export(self, session_id: str) -> bool:
         session = self._sm.get_session(session_id)
-        return bool(session.final_frame_boxs_by_frame_index)
+        return bool(session.final_frame_boxes_by_frame_index)
 
     def export_session(
         self,
@@ -61,7 +61,7 @@ class ExportService:
                     logger.warning("Null frame at index {} — skipping", frame_index)
                     continue
 
-                items = session.final_frame_boxs_by_frame_index.get(frame_index, [])
+                items = session.final_frame_boxes_by_frame_index.get(frame_index, [])
                 if session.settings.blur_enabled:
                     for item in items:
                         frame = self._blur_region(
@@ -92,7 +92,7 @@ class ExportService:
             "frames": {},
         }
 
-        for frame_index, items in sorted(session.final_frame_boxs_by_frame_index.items()):
+        for frame_index, items in sorted(session.final_frame_boxes_by_frame_index.items()):
             data["frames"][str(frame_index)] = [
                 {
                     "item_id": i.id,
@@ -119,7 +119,7 @@ class ExportService:
                 ["frame_index", "item_id", "source", "label",
                  "x1", "y1", "x2", "y2", "confidence", "color_hex"]
             )
-            for frame_index, items in sorted(session.final_frame_boxs_by_frame_index.items()):
+            for frame_index, items in sorted(session.final_frame_boxes_by_frame_index.items()):
                 for i in items:
                     x1, y1, x2, y2 = i.bbox_xyxy
                     writer.writerow([

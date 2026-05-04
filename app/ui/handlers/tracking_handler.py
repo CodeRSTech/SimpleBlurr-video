@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from app.application.coordinator import AppCoordinator
+from app.application.coordinator import Coordinator
 from app.shared.logging_cfg import get_logger
 
 logger = get_logger("UI->TrackingHandler")
 
 
 class TrackingHandler:
-    def __init__(self, window, app_coordinator: AppCoordinator) -> None:
+    def __init__(self, window, coordinator: Coordinator) -> None:
         self._window = window
-        self._app_coordinator = app_coordinator
+        self._coordinator = coordinator
 
     def on_start_tracking(self, strategy: str, source: str, render_fn) -> None:
         session_id = self._window.get_selected_session_id()
@@ -17,10 +17,10 @@ class TrackingHandler:
             return
 
         window = self._window
-        app_coordinator = self._app_coordinator
+        coordinator = self._coordinator
 
         # --- NEW SAFETY CHECK ---
-        active_session = app_coordinator.get_active_session()
+        active_session = coordinator.get_active_session()
         if active_session and active_session.has_detection_worker() and active_session.detection_worker.is_running():
             window.show_error("Action Not Allowed", "Please wait for detection to finish before starting tracking.")
             return
@@ -29,10 +29,10 @@ class TrackingHandler:
         try:
             window.set_tracking_loading_state(True)
             window.set_tracking_config_warning_visible(False)
-            app_coordinator.set_active_session(session_id)
-            app_coordinator.start_background_tracking(session_id, strategy, source)
+            coordinator.set_active_session(session_id)
+            coordinator.start_background_tracking(session_id, strategy, source)
 
-            active = app_coordinator.get_active_session()
+            active = coordinator.get_active_session()
             if active and active.has_tracking_worker():
                 active.tracking_worker.finished_processing.connect(
                     lambda: self._on_tracking_finished(session_id, render_fn)
@@ -63,14 +63,14 @@ class TrackingHandler:
         session_id = self._window.get_selected_session_id()
         if session_id is None:
             return
-        self._app_coordinator.update_session_settings(session_id, **{key: value})
-        active = self._app_coordinator.get_active_session()
-        if active and active.tracked_frame_boxs_by_frame_index:
+        self._coordinator.update_session_settings(session_id, **{key: value})
+        active = self._coordinator.get_active_session()
+        if active and active.tracked_frame_boxes_by_frame_index:
             self._window.set_tracking_config_warning_visible(True)
 
     def _on_tracking_finished(self, session_id: str, render_fn) -> None:
         logger.info("Tracking finished for session {}", session_id)
-        self._app_coordinator.sync_tracking_cache(session_id)
+        self._coordinator.sync_tracking_cache(session_id)
         self._window.set_tracking_loading_state(False)
         render_fn(session_id)
 

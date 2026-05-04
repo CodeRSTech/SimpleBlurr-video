@@ -5,7 +5,7 @@ import time
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeyEvent
 
-from app.application.coordinator import AppCoordinator
+from app.application.coordinator import Coordinator
 from app.shared.logging_cfg import get_logger
 from app.ui.qt import MainWindow
 from app.ui.qt.dialogue_boxes import EditAnnotationDialog, LabelDialog
@@ -23,26 +23,26 @@ class AnnotationHandler:
 
     Attributes:
         _window: The main application window instance.
-        _app_coordinator (AppCoordinator): The application coordinator that manages the logical
+        _coordinator (Coordinator): The application coordinator that manages the logical
             state and data manipulation of sessions and annotations.
     """
-    def __init__(self, window: MainWindow, app_coordinator: AppCoordinator) -> None:
+    def __init__(self, window: MainWindow, coordinator: Coordinator) -> None:
         self._window = window
-        self._app_coordinator = app_coordinator
+        self._coordinator = coordinator
         self._last_move_key: int | None = None
         self._last_move_ts: float = 0.0
         self._move_repeat_count: int = 0
         self._pending_render_fn = None  # set while waiting for a bbox draw
 
     def __repr__(self):
-        return f"{self.__class__.__name__}, window={self._window}, app_coordinator={self._app_coordinator}"
+        return f"{self.__class__.__name__}, window={self._window}, coordinator={self._coordinator}"
 
     def handle_new_drawn_box(self, session_id: str, x1: int, y1: int, x2: int, y2: int, render_fn) -> None:
         dialog = LabelDialog(self._window)
         if dialog.exec() == LabelDialog.DialogCode.Accepted and dialog.get_label():
             label = dialog.get_label()
             try:
-                self._app_coordinator.add_manual_frame_box(session_id, label, (x1, y1, x2, y2))
+                self._coordinator.add_manual_frame_box(session_id, label, (x1, y1, x2, y2))
                 self._window.set_status_text("Annotation added.")
                 render_fn(session_id)
             except Exception as exc:
@@ -54,8 +54,8 @@ class AnnotationHandler:
     def handle_existing_box_edit(self, session_id: str, item_key: str, render_fn, new_coords=None) -> None:
         """Handles both visual drags (new_coords) and table 'Edit' clicks (dialog)."""
         tab = self._window.get_active_tab_index()
-        item = (self._app_coordinator.get_final_frame_box(session_id, item_key) if tab == 1
-                else self._app_coordinator.get_review_frame_box(session_id, item_key))
+        item = (self._coordinator.get_final_frame_box(session_id, item_key) if tab == 1
+                else self._coordinator.get_review_frame_box(session_id, item_key))
         if item is None: return
 
         label, bbox_xyxy = item.label, item.bbox_xyxy
@@ -70,9 +70,9 @@ class AnnotationHandler:
 
         try:
             if tab == 1:
-                self._app_coordinator.update_final_frame_box(session_id, item.key, label, bbox_xyxy)
+                self._coordinator.update_final_frame_box(session_id, item.key, label, bbox_xyxy)
             else:
-                self._app_coordinator.update_manual_frame_box(session_id, item.key, label, bbox_xyxy)
+                self._coordinator.update_manual_frame_box(session_id, item.key, label, bbox_xyxy)
             render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Edit Failed", str(exc))
@@ -123,9 +123,9 @@ class AnnotationHandler:
         tab = self._window.get_active_tab_index()
         try:
             if tab == 1:
-                self._app_coordinator.delete_final_frame_boxs(session_id, keys)
+                self._coordinator.delete_final_frame_boxs(session_id, keys)
             else:
-                self._app_coordinator.delete_frame_boxs(session_id, keys)
+                self._coordinator.delete_frame_boxs(session_id, keys)
             render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Delete Failed", str(exc))
@@ -141,8 +141,8 @@ class AnnotationHandler:
         if session_id is None:
             return
         try:
-            idx = self._app_coordinator.get_session_current_frame_index(session_id)
-            self._app_coordinator.reset_review_frame(session_id, idx)
+            idx = self._coordinator.get_session_current_frame_index(session_id)
+            self._coordinator.reset_review_frame(session_id, idx)
             render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Reset Failed", str(exc))
@@ -152,7 +152,7 @@ class AnnotationHandler:
         if session_id is None:
             return
         try:
-            self._app_coordinator.reset_all_review_frames(session_id)
+            self._coordinator.reset_all_review_frames(session_id)
             render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Reset All Failed", str(exc))
@@ -162,8 +162,8 @@ class AnnotationHandler:
         if session_id is None:
             return
         try:
-            idx = self._app_coordinator.get_session_current_frame_index(session_id)
-            self._app_coordinator.reset_final_frame(session_id, idx)
+            idx = self._coordinator.get_session_current_frame_index(session_id)
+            self._coordinator.reset_final_frame(session_id, idx)
             render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Reset Tracker Frame Failed", str(exc))
@@ -173,7 +173,7 @@ class AnnotationHandler:
         if session_id is None:
             return
         try:
-            self._app_coordinator.reset_all_final_frames(session_id)
+            self._coordinator.reset_all_final_frames(session_id)
             render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Reset All Trackers Failed", str(exc))
@@ -211,9 +211,9 @@ class AnnotationHandler:
         tab = self._window.get_active_tab_index()
         try:
             if tab == 1:
-                moved = self._app_coordinator.move_final_frame_boxs(session_id, keys, dx, dy)
+                moved = self._coordinator.move_final_frame_boxs(session_id, keys, dx, dy)
             else:
-                moved = self._app_coordinator.move_manual_frame_boxs(session_id, keys, dx, dy)
+                moved = self._coordinator.move_manual_frame_boxs(session_id, keys, dx, dy)
             if moved > 0:
                 render_fn(session_id)
         except Exception as exc:
@@ -235,12 +235,12 @@ class AnnotationHandler:
         try:
             # item_key format is "track:track-uid" or "manual:manual-id", we need the raw item_id
             for key in keys:
-                item = self._app_coordinator.get_final_frame_box(session_id, key)
+                item = self._coordinator.get_final_frame_box(session_id, key)
                 if item:
                     if direction == 1:
-                        self._app_coordinator.delete_next_occurrences(session_id, item.id)
+                        self._coordinator.delete_next_occurrences(session_id, item.id)
                     else:
-                        self._app_coordinator.delete_prev_occurrences(session_id, item.id)
+                        self._coordinator.delete_prev_occurrences(session_id, item.id)
             render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Delete Occurrences Failed", str(exc))
@@ -255,14 +255,14 @@ class AnnotationHandler:
         try:
             if tab == 1:
                 if direction == 1:
-                    self._app_coordinator.duplicate_final_frame_boxs_to_next_frame(session_id, keys)
+                    self._coordinator.duplicate_final_frame_boxs_to_next_frame(session_id, keys)
                 else:
-                    self._app_coordinator.duplicate_final_frame_boxs_to_prev_frame(session_id, keys)
+                    self._coordinator.duplicate_final_frame_boxs_to_prev_frame(session_id, keys)
             else:
                 if direction == 1:
-                    self._app_coordinator.duplicate_frame_boxs_to_next_frame(session_id, keys)
+                    self._coordinator.duplicate_frame_boxs_to_next_frame(session_id, keys)
                 else:
-                    self._app_coordinator.duplicate_frame_boxs_to_prev_frame(session_id, keys)
+                    self._coordinator.duplicate_frame_boxs_to_prev_frame(session_id, keys)
             render_fn(session_id)
         except Exception as exc:
             self._window.show_error("Duplicate Failed", str(exc))
@@ -297,7 +297,7 @@ class AnnotationHandler:
 
         bbox_xyxy = (x1, y1, x2, y2)
         try:
-            self._app_coordinator.add_manual_frame_box(session_id, label, bbox_xyxy)
+            self._coordinator.add_manual_frame_box(session_id, label, bbox_xyxy)
             if render_fn:
                 render_fn(session_id)
             self._window.set_status_text("Annotation added.")

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from matplotlib.pyplot import box
 
-from app.domain.views.view_models import FrameBoxViewModel
+from app.domain.views.view_models import BoundingBoxViewModel
 from app.shared.logging_cfg import get_logger
 
 logger = get_logger("Domain->Detection")
@@ -35,7 +35,7 @@ class DetectionResult:
     color_hex: str = "#808080"
 
     def to_frame_box_view_model(self):
-        return FrameBoxViewModel(
+        return BoundingBoxViewModel(
             id=self.item_id,
             source="Detection",
             label=self.label,

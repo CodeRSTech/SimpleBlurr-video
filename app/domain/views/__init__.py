@@ -1,15 +1,15 @@
 from .view_models import SessionFileListViewModel
-from .view_models import FrameDataBoxViewModel
+from .view_models import BoundingBoxViewModel
 from .view_models import FrameBoxesViewModel
-from .view_models import DetectionModelsViewModel
-from .view_models import FrameBoxViewModel
+from .view_models import DetectionModelSelectionViewModel
+from .view_models import BoundingBoxViewModel
 from .view_models import SessionSettingsViewModel
 
 __all__ = [
     "SessionFileListViewModel",
-    "FrameDataBoxViewModel",
+    "BoundingBoxViewModel",
     "FrameBoxesViewModel",
-    "DetectionModelsViewModel",
-    "FrameBoxViewModel",
+    "DetectionModelSelectionViewModel",
+    "BoundingBoxViewModel",
     "SessionSettingsViewModel",
 ]

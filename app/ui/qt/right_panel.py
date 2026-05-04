@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.domain.views import SessionSettingsViewModel, DetectionModelsViewModel
+from app.domain.views import SessionSettingsViewModel, DetectionModelSelectionViewModel
 from app.ui.qt.widgets.collapsible_widget import CollapsibleBox
 
 
@@ -260,7 +260,7 @@ class RightControlPanel(QScrollArea):
         self.tracking_strategy_combo_box.setEnabled(not is_loading)
         self.tracking_source_combo_box.setEnabled(not is_loading)
 
-    def set_detection_model_items(self, items: list[DetectionModelsViewModel]) -> None:
+    def set_detection_model_items(self, items: list[DetectionModelSelectionViewModel]) -> None:
         with QSignalBlocker(self.model_combo_box):
             self.model_combo_box.clear()
             for item in items:

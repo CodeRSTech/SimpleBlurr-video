@@ -27,28 +27,23 @@ class VideoReader:
 
     @property
     def path(self) -> str:
-        logger.trace("Getting path from: {}", self._path)
         return self._path
 
     @property
     def frame_count(self) -> int:
-        logger.trace("Getting frame count from: {}", self._path)
         # Fallback to 0 if the container header is missing frame count metadata
         return self._stream.frames or 0
 
     @property
     def fps(self) -> float:
-        logger.trace("Getting FPS from: {}", self._path)
         return float(self._stream.average_rate)
 
     @property
     def width(self) -> int:
-        logger.trace("Getting width from: {}", self._path)
         return self._stream.codec_context.width
 
     @property
     def height(self) -> int:
-        logger.trace("Getting height from: {}", self._path)
         return self._stream.codec_context.height
 
     def close(self) -> None:

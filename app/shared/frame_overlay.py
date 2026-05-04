@@ -3,12 +3,14 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from app.domain.views import FrameDataBoxViewModel
+from app.domain.views import BoundingBoxViewModel
+from app.shared.logging_cfg import get_logger
+logger = get_logger("Shared->Frame Overlay")
 
 
 def draw_frame_overlays(
         frame: np.ndarray,
-        items: list[FrameDataBoxViewModel],
+        items: list[BoundingBoxViewModel],
 ) -> np.ndarray:
     if not items:
         return frame
@@ -16,21 +18,12 @@ def draw_frame_overlays(
     result = frame.copy()
 
     for item in items:
-        bbox_text = item.bbox_txt.strip()
-        try:
-            start_text, end_text = bbox_text.split("-")
-            x1_text, y1_text = start_text.strip("()").split(",")
-            x2_text, y2_text = end_text.strip("()").split(",")
-            x1 = int(x1_text)
-            y1 = int(y1_text)
-            x2 = int(x2_text)
-            y2 = int(y2_text)
-        except Exception:
-            continue
+        # 1. Unpack the tuple directly! No string parsing needed.
+        x1, y1, x2, y2 = item.bbox_xyxy
 
         color = _hex_to_bgr(item.color_hex)
-
         cv2.rectangle(result, (x1, y1), (x2, y2), color, 2)
+
         label = f"{item.id}:{item.label} {item.confidence_txt}"
         cv2.putText(
             result,

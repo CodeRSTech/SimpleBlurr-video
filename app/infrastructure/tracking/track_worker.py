@@ -10,7 +10,7 @@ from app.infrastructure.tracking.hungarian_tracker import (
     TrackInput,
     TrackState,
 )
-from app.domain.views.view_models import FrameBoxViewModel
+from app.domain.views.view_models import BoundingBoxViewModel
 from app.domain.processing_settings import ProcessingSettings
 from app.shared.logging_cfg import get_logger
 from app.domain.typing import FrameItemsByIndex
@@ -84,7 +84,7 @@ class HungarianStrategy:
             active: list[TrackState] = self._engine.update(detections)
             
             tracked[frame_idx] = [
-                FrameBoxViewModel(
+                BoundingBoxViewModel(
                     id=f"track-{t.uid}",
                     source="Track (Hungarian)",
                     label=t.label,
